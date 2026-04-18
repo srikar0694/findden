@@ -1,0 +1,46 @@
+[
+  {
+    "id": "plan-starter-001",
+    "name": "Starter",
+    "description": "Perfect for individual agents posting a few listings per month.",
+    "price": 999,
+    "currency": "INR",
+    "quota": 5,
+    "duration_days": 30,
+    "is_active": true,
+    "created_at": "2026-01-01T00:00:00.000Z"
+  },
+  {
+    "id": "plan-pro-002",
+    "name": "Pro",
+    "description": "For growing agencies managing a high volume of listings.",
+    "price": 2999,
+    "currency": "INR",
+    "quota": 20,
+    "duration_days": 30,
+    "is_active": true,
+    "created_at": "2026-01-01T00:00:00.000Z"
+  },
+  {
+    "id": "plan-enterprise-003",
+    "name": "Enterprise",
+    "description": "Unlimited scale for large real estate firms and developers.",
+    "price": 7999,
+    "currency": "INR",
+    "quota": 100,
+    "duration_days": 30,
+    "is_active": true,
+    "created_at": "2026-01-01T00:00:00.000Z"
+  },
+  {
+    "id": "plan-pay-per-listing-004",
+    "name": "Pay Per Listing",
+    "description": "No subscription needed. Pay ₹299 per listing, valid for 30 days.",
+    "price": 299,
+    "currency": "INR",
+    "quota": 1,
+    "duration_days": 30,
+    "is_active": true,
+    "created_at": "2026-01-01T00:00:00.000Z"
+  }
+]

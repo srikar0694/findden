@@ -1,0 +1,32 @@
+[
+  {
+    "id": "txn-001",
+    "user_id": "user-agent-002",
+    "subscription_id": "sub-001",
+    "property_id": null,
+    "amount": 2999,
+    "currency": "INR",
+    "type": "subscription",
+    "status": "success",
+    "payment_gateway": "razorpay",
+    "payment_ref": "rzp_pay_demo001",
+    "metadata": {},
+    "created_at": "2026-03-01T00:00:00.000Z",
+    "updated_at": "2026-03-01T00:00:00.000Z"
+  },
+  {
+    "id": "txn-002",
+    "user_id": "user-owner-004",
+    "subscription_id": "sub-002",
+    "property_id": null,
+    "amount": 999,
+    "currency": "INR",
+    "type": "subscription",
+    "status": "success",
+    "payment_gateway": "razorpay",
+    "payment_ref": "rzp_pay_demo002",
+    "metadata": {},
+    "created_at": "2026-03-15T00:00:00.000Z",
+    "updated_at": "2026-03-15T00:00:00.000Z"
+  }
+]
