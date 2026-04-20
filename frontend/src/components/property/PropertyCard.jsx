@@ -1,8 +1,10 @@
-import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { Link, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import { formatCurrency, formatRent } from '../../utils/formatCurrency';
 import { timeAgo } from '../../utils/formatDate';
 import { cardHover } from '../motion/variants';
+import { useAuthStore } from '../../store/authStore';
+import { useWishlistStore } from '../../store/wishlistStore';
 
 const TYPE_LABELS = {
   apartment: 'Apartment', house: 'House', villa: 'Villa',
@@ -20,12 +22,28 @@ export default function PropertyCard({ property, isSelected, onClick }) {
     createdAt, viewsCount, status, nearestTransit,
   } = property;
 
+  const { token } = useAuthStore();
+  const navigate = useNavigate();
+  const wishlistIds = useWishlistStore((s) => s.ids);
+  const toggleWishlist = useWishlistStore((s) => s.toggle);
+  const isWishlisted = wishlistIds.has(id) || property.isWishlisted;
+
   const img = thumbnail || images?.[0] || 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=400';
   const priceStr = listingType === 'rent' ? formatRent(price) : formatCurrency(price);
   const isSold = status === 'sold' || status === 'rented';
   const topTransit = Array.isArray(nearestTransit) && nearestTransit.length
     ? [...nearestTransit].sort((a, b) => a.distanceKm - b.distanceKm)[0]
     : null;
+
+  const handleHeartClick = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+    await toggleWishlist(id);
+  };
 
   return (
     <motion.div
@@ -34,7 +52,7 @@ export default function PropertyCard({ property, isSelected, onClick }) {
       whileHover={isSold ? undefined : 'hover'}
       whileTap={isSold ? undefined : 'tap'}
       animate="rest"
-      className="rounded-xl"
+      className="rounded-xl relative"
     >
       <Link
         to={`/property/${id}`}
@@ -61,6 +79,27 @@ export default function PropertyCard({ property, isSelected, onClick }) {
               {TYPE_LABELS[propertyType] || propertyType}
             </span>
           </div>
+
+          {/* Wishlist heart */}
+          <button
+            type="button"
+            onClick={handleHeartClick}
+            aria-label={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+            className="absolute top-2 right-2 bg-white/90 backdrop-blur w-9 h-9 rounded-full flex items-center justify-center shadow-sm hover:shadow-md transition-all"
+          >
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.span
+                key={isWishlisted ? 'filled' : 'empty'}
+                initial={{ scale: 0.6, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.6, opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className={`text-lg leading-none ${isWishlisted ? 'text-rose-500' : 'text-gray-400'}`}
+              >
+                {isWishlisted ? '♥' : '♡'}
+              </motion.span>
+            </AnimatePresence>
+          </button>
 
           {/* Sold-out ribbon */}
           {isSold && (

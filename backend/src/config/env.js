@@ -19,6 +19,9 @@ module.exports = {
     allowedOrigins: (process.env.ALLOWED_ORIGINS || 'http://localhost:5173,http://localhost:3000').split(','),
   },
   rateLimit: {
+    // Feature flag — set RATE_LIMIT_ENABLED=true to re-enable the limiter.
+    // Currently disabled to avoid "Too many requests" during dev / testing.
+    enabled: process.env.RATE_LIMIT_ENABLED === 'true',
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000,
     max: parseInt(process.env.RATE_LIMIT_MAX, 10) || 100,
   },

@@ -1,6 +1,8 @@
 import { Link, NavLink, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useEffect } from 'react';
 import { useAuthStore } from '../../store/authStore';
+import { useWishlistStore } from '../../store/wishlistStore';
 
 const navLinkBase =
   'text-sm font-medium transition-colors relative py-1';
@@ -38,10 +40,23 @@ export default function Navbar() {
   const { user, token, logout } = useAuthStore();
   const navigate = useNavigate();
 
+  const wishlistIds = useWishlistStore((s) => s.ids);
+  const fetchWishlist = useWishlistStore((s) => s.fetch);
+  const wishlistCount = wishlistIds.size;
+
+  // Refresh wishlist on login / token change
+  useEffect(() => {
+    if (token) fetchWishlist();
+  }, [token, fetchWishlist]);
+
   const handleLogout = () => {
     logout();
     navigate('/');
   };
+
+  const initials = user?.name
+    ? user.name.split(' ').map((s) => s[0]).slice(0, 2).join('').toUpperCase()
+    : '👤';
 
   return (
     <motion.nav
@@ -82,7 +97,45 @@ export default function Navbar() {
           <div className="flex items-center gap-3">
             {token ? (
               <div className="flex items-center gap-3">
-                <span className="text-sm text-gray-700 hidden sm:block">
+                {/* Wishlist icon — only renders when there are items */}
+                <AnimatePresence>
+                  {wishlistCount > 0 && (
+                    <motion.div
+                      initial={{ scale: 0, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      exit={{ scale: 0, opacity: 0 }}
+                      transition={{ type: 'spring', stiffness: 400, damping: 22 }}
+                    >
+                      <Link
+                        to="/wishlist"
+                        title={`${wishlistCount} item${wishlistCount === 1 ? '' : 's'} in your wishlist`}
+                        className="relative inline-flex items-center justify-center w-9 h-9 rounded-full hover:bg-rose-50 transition-colors"
+                      >
+                        <span className="text-rose-500 text-xl leading-none">♥</span>
+                        <motion.span
+                          key={wishlistCount}
+                          initial={{ scale: 0.5 }}
+                          animate={{ scale: 1 }}
+                          transition={{ type: 'spring', stiffness: 500, damping: 18 }}
+                          className="absolute -top-0.5 -right-0.5 bg-rose-600 text-white text-[10px] font-bold min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center shadow-sm"
+                        >
+                          {wishlistCount > 99 ? '99+' : wishlistCount}
+                        </motion.span>
+                      </Link>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Profile avatar */}
+                <Link
+                  to="/dashboard"
+                  title={user?.name || 'My account'}
+                  className="hidden sm:flex items-center justify-center w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-xs font-bold shadow-sm hover:shadow-md transition-shadow"
+                >
+                  {initials}
+                </Link>
+
+                <span className="text-sm text-gray-700 hidden lg:block">
                   Hi, {user?.name?.split(' ')[0]}
                 </span>
                 <button
