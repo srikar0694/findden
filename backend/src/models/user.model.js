@@ -12,12 +12,22 @@ const UserModel = {
 
   findByIdWithPassword: (id) => db.findById(TABLE, id),
 
-  findByEmail: (email) => db.findOne(TABLE, (u) => u.email === email.toLowerCase()),
+  findByEmail: (email) =>
+    email ? db.findOne(TABLE, (u) => u.email && u.email === email.toLowerCase()) : null,
+
+  findByPhone: (phone) => {
+    if (!phone) return null;
+    const normalized = String(phone).replace(/\s+/g, '');
+    return db.findOne(TABLE, (u) => u.phone && String(u.phone).replace(/\s+/g, '') === normalized);
+  },
+
+  findByGoogleId: (googleId) =>
+    googleId ? db.findOne(TABLE, (u) => u.google_id === googleId) : null,
 
   create: (data) => {
     const row = db.insert(TABLE, {
       ...data,
-      email: data.email.toLowerCase(),
+      email: data.email ? data.email.toLowerCase() : null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });

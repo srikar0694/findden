@@ -4,7 +4,7 @@ const { success, created, notFound, error } = require('../utils/response');
 const PropertiesController = {
   async search(req, res, next) {
     try {
-      const result = await PropertiesService.search(req.query);
+      const result = await PropertiesService.search(req.query, req.user?.id || null);
       return success(res, result.data, result.meta);
     } catch (err) {
       return next(err);
@@ -13,7 +13,7 @@ const PropertiesController = {
 
   getById(req, res, next) {
     try {
-      const property = PropertiesService.getById(req.params.id);
+      const property = PropertiesService.getById(req.params.id, req.user?.id || null);
       if (!property) return notFound(res, 'Property not found');
       return success(res, property);
     } catch (err) {
@@ -23,10 +23,10 @@ const PropertiesController = {
 
   async create(req, res, next) {
     try {
+      // Posting is free — no payment gate.
       const property = await PropertiesService.create(req.user.id, req.body);
       return created(res, property);
     } catch (err) {
-      if (err.code === 'PAYMENT_REQUIRED') return error(res, err.message, 'PAYMENT_REQUIRED', 402);
       return next(err);
     }
   },
@@ -63,6 +63,21 @@ const PropertiesController = {
       const result = PropertiesService.getMyListings(req.user.id, req.query);
       return success(res, result.data, result.meta);
     } catch (err) {
+      return next(err);
+    }
+  },
+
+  async markSold(req, res, next) {
+    try {
+      const property = await PropertiesService.markSold(
+        req.params.id,
+        req.user.id,
+        req.user.role
+      );
+      if (!property) return notFound(res, 'Property not found');
+      return success(res, property);
+    } catch (err) {
+      if (err.code === 'FORBIDDEN') return error(res, err.message, 'FORBIDDEN', 403);
       return next(err);
     }
   },

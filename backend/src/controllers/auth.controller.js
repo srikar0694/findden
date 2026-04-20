@@ -8,6 +8,7 @@ const AuthController = {
       return created(res, { user, token });
     } catch (err) {
       if (err.code === 'EMAIL_TAKEN') return error(res, err.message, 'EMAIL_TAKEN', 409);
+      if (err.code === 'PHONE_TAKEN') return error(res, err.message, 'PHONE_TAKEN', 409);
       return next(err);
     }
   },
@@ -18,6 +19,16 @@ const AuthController = {
       return success(res, { user, token });
     } catch (err) {
       if (err.code === 'INVALID_CREDENTIALS') return error(res, err.message, 'INVALID_CREDENTIALS', 401);
+      if (err.code === 'USE_GOOGLE') return error(res, err.message, 'USE_GOOGLE', 400);
+      return next(err);
+    }
+  },
+
+  async googleAuth(req, res, next) {
+    try {
+      const { user, token } = await AuthService.googleAuth(req.body);
+      return success(res, { user, token });
+    } catch (err) {
       return next(err);
     }
   },

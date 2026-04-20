@@ -72,9 +72,9 @@
       "club_house"
     ],
     "available_from": "2026-05-01",
-    "views_count": 891,
+    "views_count": 893,
     "created_at": "2026-03-05T11:00:00.000Z",
-    "updated_at": "2026-03-05T11:00:00.000Z"
+    "updated_at": "2026-04-19T10:22:16.506Z"
   },
   {
     "id": "prop-003",
@@ -222,9 +222,9 @@
       "solar_panels"
     ],
     "available_from": "2026-05-15",
-    "views_count": 438,
+    "views_count": 440,
     "created_at": "2026-03-12T15:00:00.000Z",
-    "updated_at": "2026-03-12T15:00:00.000Z"
+    "updated_at": "2026-04-20T06:47:19.649Z"
   },
   {
     "id": "prop-007",
@@ -367,9 +367,9 @@
       "electricity"
     ],
     "available_from": "2026-04-01",
-    "views_count": 198,
+    "views_count": 202,
     "created_at": "2026-03-22T09:00:00.000Z",
-    "updated_at": "2026-03-22T09:00:00.000Z"
+    "updated_at": "2026-04-19T10:18:25.311Z"
   },
   {
     "id": "prop-011",
@@ -442,9 +442,9 @@
       "security"
     ],
     "available_from": "2026-05-01",
-    "views_count": 1203,
+    "views_count": 1209,
     "created_at": "2026-03-28T13:00:00.000Z",
-    "updated_at": "2026-03-28T13:00:00.000Z"
+    "updated_at": "2026-04-19T10:15:44.691Z"
   },
   {
     "id": "prop-013",
@@ -476,9 +476,9 @@
       "security"
     ],
     "available_from": "2026-04-01",
-    "views_count": 89,
+    "views_count": 93,
     "created_at": "2026-04-01T10:00:00.000Z",
-    "updated_at": "2026-04-18T14:31:51.281Z"
+    "updated_at": "2026-04-19T10:21:35.984Z"
   },
   {
     "id": "prop-014",
@@ -515,9 +515,9 @@
       "home_theatre"
     ],
     "available_from": "2026-07-01",
-    "views_count": 3241,
+    "views_count": 3243,
     "created_at": "2026-04-01T12:00:00.000Z",
-    "updated_at": "2026-04-01T12:00:00.000Z"
+    "updated_at": "2026-04-19T10:15:41.656Z"
   },
   {
     "id": "prop-015",
@@ -553,8 +553,8 @@
       "metro_nearby"
     ],
     "available_from": "2026-06-01",
-    "views_count": 621,
+    "views_count": 629,
     "created_at": "2026-04-02T09:00:00.000Z",
-    "updated_at": "2026-04-02T09:00:00.000Z"
+    "updated_at": "2026-04-20T06:43:45.382Z"
   }
 ]

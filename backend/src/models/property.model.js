@@ -13,17 +13,38 @@ const PropertyModel = {
   /**
    * Search with filters + optional bounding box.
    * Returns { rows, total } for pagination.
+   *
+   * Updated:
+   *   - Includes active AND recently-sold properties (visible for up to
+   *     `soldVisibilityDays` — default 2 — then auto-filtered out).
+   *   - Supports `includeSold` flag (for dedicated "sold" views).
+   *   - Supports `status` being an array for admin views.
    */
   search: (filters = {}) => {
     const {
       swLat, swLng, neLat, neLng,
       city, listingType, propertyType,
       minPrice, maxPrice, bedrooms, furnishing,
-      status = 'active',
+      status,                         // string | string[]
+      includeRecentlySold = true,     // show sold properties for 2 days
+      soldVisibilityDays = 2,
     } = filters;
 
+    const soldCutoff = Date.now() - soldVisibilityDays * 24 * 60 * 60 * 1000;
+    const statuses = Array.isArray(status)
+      ? status
+      : status
+        ? [status]
+        : (includeRecentlySold ? ['active', 'sold', 'rented'] : ['active']);
+
     let rows = db.findWhere(TABLE, (p) => {
-      if (p.status !== status) return false;
+      if (!statuses.includes(p.status)) return false;
+
+      // Hide sold/rented listings older than the visibility window.
+      if ((p.status === 'sold' || p.status === 'rented') && includeRecentlySold) {
+        const soldAt = p.sold_at ? new Date(p.sold_at).getTime() : 0;
+        if (soldAt < soldCutoff) return false;
+      }
 
       // Bounding box filter
       if (swLat != null && swLng != null && neLat != null && neLng != null) {
@@ -46,6 +67,20 @@ const PropertyModel = {
 
     return { rows, total: rows.length };
   },
+
+  /**
+   * Mark a property as sold (or rented) with a timestamp.
+   * Consumers have 2 days of visibility before the record is auto-filtered.
+   */
+  markSold: (id) => db.updateById(TABLE, id, {
+    status: 'sold',
+    sold_at: new Date().toISOString(),
+  }),
+
+  markRented: (id) => db.updateById(TABLE, id, {
+    status: 'rented',
+    sold_at: new Date().toISOString(),
+  }),
 
   create: (data) =>
     db.insert(TABLE, {

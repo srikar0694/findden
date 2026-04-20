@@ -36,6 +36,20 @@ export const useAuthStore = create(
         }
       },
 
+      // Google OAuth — in production replace the simulated profile with the
+      // payload returned by Google Identity Services.
+      googleLogin: async (profile) => {
+        set({ loading: true, error: null });
+        try {
+          const res = await authService.googleAuth(profile);
+          set({ user: res.data.user, token: res.data.token, loading: false });
+          return { success: true };
+        } catch (err) {
+          set({ error: err.message, loading: false });
+          return { success: false, error: err.message };
+        }
+      },
+
       logout: () => {
         set({ user: null, token: null, error: null });
       },

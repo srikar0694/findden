@@ -1,104 +1,121 @@
 /**
- * Pricing Engine — Core business logic for listing monetisation.
- * This service is the single source of truth for quota and payment decisions.
- * Never call this logic from the frontend.
+ * Contact Access & Pricing Engine
+ * ----------------------------------------------------------------------
+ * Single source of truth for the rule:
+ *   "Posting a property is FREE.
+ *    To view a seller's contact details, a buyer must either
+ *      (a) hold a persistent per-property unlock, or
+ *      (b) have an active subscription with quota remaining — which,
+ *          when spent, grants (a) for that property going forward."
+ *
+ * This service never touches HTTP; it's pure domain logic.
  */
 
 const SubscriptionModel = require('../models/subscription.model');
 const PlanModel = require('../models/plan.model');
-const TransactionModel = require('../models/transaction.model');
+const ContactUnlockModel = require('../models/contactUnlock.model');
+const { v4: uuidv4 } = require('uuid');
 
 const PricingService = {
   /**
-   * Determine if a user can post a listing and via which mechanism.
-   * Returns: { canPost, method: 'subscription'|'pay_per_listing'|'none', subscription, reason }
+   * Return the caller's current entitlement snapshot.
+   * Used by dashboards & the Unlock Contact button.
    */
-  async checkPostingEligibility(userId, paymentRef = null) {
+  getEntitlement(userId) {
     const subscription = SubscriptionModel.findActiveByUserId(userId);
+    if (!subscription) return { hasSubscription: false };
 
-    if (subscription) {
-      const plan = PlanModel.findById(subscription.plan_id);
-      if (!plan) return { canPost: false, method: 'none', reason: 'Plan not found' };
-
-      const remaining = plan.quota - subscription.quota_used;
-      if (remaining > 0) {
-        return { canPost: true, method: 'subscription', subscription, plan, remaining };
-      }
-      // Quota exhausted — check if they want to pay per listing
-      if (paymentRef) {
-        return { canPost: true, method: 'pay_per_listing', subscription: null };
-      }
-      return {
-        canPost: false,
-        method: 'none',
-        reason: 'Subscription quota exhausted. Please upgrade or pay per listing.',
-      };
-    }
-
-    // No active subscription
-    if (paymentRef) {
-      return { canPost: true, method: 'pay_per_listing', subscription: null };
-    }
-
+    const plan = PlanModel.findById(subscription.plan_id);
+    const quota = plan?.unlock_quota || 0;
+    const used = subscription.quota_used || 0;
     return {
-      canPost: false,
-      method: 'none',
-      reason: 'No active subscription. Please subscribe or pay per listing.',
-    };
-  },
-
-  /**
-   * Deduct one listing slot from the user's active subscription.
-   */
-  async deductSubscriptionQuota(subscriptionId, planId) {
-    const plan = PlanModel.findById(planId);
-    if (!plan) throw new Error('Plan not found');
-    const result = SubscriptionModel.deductQuota(subscriptionId, plan.quota);
-    if (!result.success) throw Object.assign(new Error(result.reason), { code: 'QUOTA_ERROR' });
-    return result.subscription;
-  },
-
-  /**
-   * Verify a pay-per-listing payment reference.
-   * In production, this calls the payment gateway SDK.
-   * Here we simulate success for non-empty refs.
-   */
-  async verifyPayPerListingPayment(paymentRef, userId, propertyId) {
-    if (!paymentRef) throw new Error('Payment reference is required for pay-per-listing');
-
-    // Simulate gateway verification
-    const payPerListingPlan = PlanModel.findById('plan-pay-per-listing-004');
-    const amount = payPerListingPlan ? payPerListingPlan.price : 299;
-
-    const transaction = TransactionModel.create({
-      id: require('uuid').v4(),
-      user_id: userId,
-      subscription_id: null,
-      property_id: propertyId,
-      amount,
-      currency: 'INR',
-      type: 'pay_per_listing',
-      status: 'success',
-      payment_gateway: 'razorpay',
-      payment_ref: paymentRef,
-      metadata: { verified_at: new Date().toISOString() },
-    });
-
-    return transaction;
-  },
-
-  /**
-   * Get subscription summary for a user (for dashboard).
-   */
-  getSubscriptionSummary(userId) {
-    const sub = SubscriptionModel.findActiveByUserId(userId);
-    if (!sub) return null;
-    const plan = PlanModel.findById(sub.plan_id);
-    return {
-      ...sub,
+      hasSubscription: true,
+      subscription,
       plan,
-      quota_remaining: plan ? plan.quota - sub.quota_used : 0,
+      unlocksRemaining: Math.max(0, quota - used),
+      unlocksTotal: quota,
+      unlocksUsed: used,
+      expiresAt: subscription.expires_at,
     };
+  },
+
+  /**
+   * Decide how a contact request for `propertyId` should be satisfied.
+   *
+   *   { method: 'already_unlocked' }           → user already paid for this one
+   *   { method: 'deduct_subscription', plan }  → active sub has quota remaining
+   *   { method: 'payment_required',   reason } → user must purchase (Single / Cart / Premium)
+   *
+   * This method does NOT mutate state; it's a pure decision function.
+   */
+  checkContactAccess(userId, propertyId) {
+    if (ContactUnlockModel.hasUnlock(userId, propertyId)) {
+      return { method: 'already_unlocked' };
+    }
+    const ent = PricingService.getEntitlement(userId);
+    if (ent.hasSubscription && ent.unlocksRemaining > 0) {
+      return { method: 'deduct_subscription', entitlement: ent };
+    }
+    return {
+      method: 'payment_required',
+      reason: ent.hasSubscription
+        ? 'Your monthly unlock quota is exhausted — upgrade or buy a single unlock.'
+        : 'Purchase a plan to view contact details.',
+    };
+  },
+
+  /**
+   * Consume one slot of the user's subscription quota and persist a
+   * permanent per-property unlock.  Atomic: if the quota check fails we
+   * never create the unlock row.
+   */
+  consumeSubscriptionForUnlock(userId, propertyId, transactionId = null) {
+    const ent = PricingService.getEntitlement(userId);
+    if (!ent.hasSubscription) {
+      throw Object.assign(new Error('No active subscription'), {
+        code: 'PAYMENT_REQUIRED', statusCode: 402,
+      });
+    }
+    if (ent.unlocksRemaining <= 0) {
+      throw Object.assign(new Error('Monthly unlock quota exhausted'), {
+        code: 'QUOTA_EXCEEDED', statusCode: 402,
+      });
+    }
+    const result = SubscriptionModel.deductQuota(ent.subscription.id, ent.plan.unlock_quota);
+    if (!result.success) {
+      throw Object.assign(new Error(result.reason), {
+        code: 'QUOTA_ERROR', statusCode: 402,
+      });
+    }
+    return ContactUnlockModel.grant({
+      id: uuidv4(),
+      user_id: userId,
+      property_id: propertyId,
+      source: ent.plan.slug,
+      subscription_id: ent.subscription.id,
+      transaction_id: transactionId,
+    });
+  },
+
+  /**
+   * Batch variant used from the Wishlist "Unlock all" flow.
+   * Returns { unlocked, needsPayment } where `needsPayment` is the subset
+   * of propertyIds that couldn't be served from the current quota.
+   */
+  consumeSubscriptionForMany(userId, propertyIds) {
+    const unlocked = [];
+    const needsPayment = [];
+    for (const pid of propertyIds) {
+      if (ContactUnlockModel.hasUnlock(userId, pid)) { unlocked.push(pid); continue; }
+      const ent = PricingService.getEntitlement(userId);
+      if (!ent.hasSubscription || ent.unlocksRemaining <= 0) {
+        needsPayment.push(pid);
+        continue;
+      }
+      PricingService.consumeSubscriptionForUnlock(userId, pid);
+      unlocked.push(pid);
+    }
+    return { unlocked, needsPayment };
   },
 };
 

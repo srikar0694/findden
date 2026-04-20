@@ -5,10 +5,14 @@ const plansRoutes = require('./plans.routes');
 const subscriptionsRoutes = require('./subscriptions.routes');
 const paymentsRoutes = require('./payments.routes');
 const dashboardRoutes = require('./dashboard.routes');
+const contactsRoutes = require('./contacts.routes');
+const wishlistRoutes = require('./wishlist.routes');
 
 const router = express.Router();
 
-router.get('/health', (req, res) => res.json({ success: true, data: { status: 'ok', timestamp: new Date().toISOString() } }));
+router.get('/health', (req, res) =>
+  res.json({ success: true, data: { status: 'ok', timestamp: new Date().toISOString() } })
+);
 
 router.use('/auth', authRoutes);
 router.use('/properties', propertiesRoutes);
@@ -16,5 +20,7 @@ router.use('/plans', plansRoutes);
 router.use('/subscriptions', subscriptionsRoutes);
 router.use('/payments', paymentsRoutes);
 router.use('/dashboard', dashboardRoutes);
+router.use('/contacts', contactsRoutes);
+router.use('/wishlist', wishlistRoutes);
 
 module.exports = router;

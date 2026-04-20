@@ -7,6 +7,12 @@ const { PROPERTY_TYPES, LISTING_TYPES, FURNISHING_TYPES, PROPERTY_STATUSES } = r
 
 const router = express.Router();
 
+const transitItemSchema = Joi.object({
+  type: Joi.string().valid('metro', 'bus', 'train', 'airport').required(),
+  name: Joi.string().required(),
+  distanceKm: Joi.number().min(0).required(),
+});
+
 const createPropertySchema = Joi.object({
   title: Joi.string().min(5).max(255).required(),
   description: Joi.string().max(5000).optional(),
@@ -29,7 +35,17 @@ const createPropertySchema = Joi.object({
   images: Joi.array().items(Joi.string().uri()).default([]),
   amenities: Joi.array().items(Joi.string()).default([]),
   available_from: Joi.string().isoDate().optional(),
-  paymentRef: Joi.string().optional(),
+  // Project lifecycle: ready_to_move | under_construction | pre_launch | upcoming
+  possession_status: Joi.string()
+    .valid('ready_to_move', 'under_construction', 'pre_launch', 'upcoming')
+    .default('ready_to_move'),
+  // Nearest public transport list
+  nearest_transit: Joi.array().items(transitItemSchema).default([]),
+  // Contact fields the buyer will see after unlocking. Fall back to the
+  // owner's own profile phone/email if not provided.
+  contact_name: Joi.string().max(120).optional(),
+  contact_phone: Joi.string().pattern(/^[0-9+\-\s]{6,20}$/).optional(),
+  contact_email: Joi.string().email().optional(),
 });
 
 const updatePropertySchema = Joi.object({
@@ -56,6 +72,8 @@ const searchQuerySchema = Joi.object({
   maxPrice: Joi.number().optional(),
   bedrooms: Joi.number().integer().min(1).optional(),
   furnishing: Joi.string().valid(...FURNISHING_TYPES).optional(),
+  // 'true' (default) keeps recently-sold (≤2 days) in search; 'false' hides them.
+  includeSold: Joi.string().valid('true', 'false').optional(),
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(20),
 });
@@ -65,6 +83,8 @@ router.get('/my', authenticate, PropertiesController.getMyListings);
 router.get('/:id', optionalAuth, PropertiesController.getById);
 router.post('/', authenticate, validate(createPropertySchema), PropertiesController.create);
 router.patch('/:id', authenticate, validate(updatePropertySchema), PropertiesController.update);
+// Owner/admin can mark a property as SOLD OUT — visible for 2 days, then hidden.
+router.post('/:id/mark-sold', authenticate, PropertiesController.markSold);
 router.delete('/:id', authenticate, PropertiesController.remove);
 
 module.exports = router;

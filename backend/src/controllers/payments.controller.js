@@ -1,10 +1,11 @@
 const PaymentsService = require('../services/payments.service');
+const RazorpayGateway = require('../services/razorpay.gateway');
 const { success, error } = require('../utils/response');
 
 const PaymentsController = {
-  initiatePayment(req, res, next) {
+  async initiatePayment(req, res, next) {
     try {
-      const order = PaymentsService.initiatePayment(req.user.id, req.body);
+      const order = await PaymentsService.initiatePayment(req.user.id, req.body);
       return success(res, order);
     } catch (err) {
       if (err.code === 'NOT_FOUND') return error(res, err.message, 'NOT_FOUND', 404);
@@ -13,12 +14,26 @@ const PaymentsController = {
     }
   },
 
-  verifyPayment(req, res, next) {
+  async verifyPayment(req, res, next) {
     try {
-      const result = PaymentsService.verifyPayment(req.user.id, req.body);
+      const result = await PaymentsService.verifyPayment(req.user.id, req.body);
       return success(res, result);
     } catch (err) {
       if (err.code === 'PAYMENT_FAILED') return error(res, err.message, 'PAYMENT_FAILED', 402);
+      if (err.code === 'NOT_FOUND')      return error(res, err.message, 'NOT_FOUND', 404);
+      return next(err);
+    }
+  },
+
+  /** Sandbox-only HMAC signer — see payments.routes.js comment. */
+  sandboxSign(req, res, next) {
+    try {
+      if (RazorpayGateway.isLive()) {
+        return error(res, 'Sandbox sign disabled in live mode', 'FORBIDDEN', 403);
+      }
+      const signature = RazorpayGateway.sandboxSign(req.body);
+      return success(res, { signature });
+    } catch (err) {
       return next(err);
     }
   },

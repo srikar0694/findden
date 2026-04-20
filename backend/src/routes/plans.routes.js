@@ -7,26 +7,38 @@ const { validate } = require('../middlewares/validate.middleware');
 
 const router = express.Router();
 
+const planShape = {
+  name: Joi.string(),
+  slug: Joi.string().valid('single', 'cart', 'premium'),
+  description: Joi.string(),
+  tagline: Joi.string(),
+  price: Joi.number().positive(),
+  currency: Joi.string().length(3),
+  unlock_quota: Joi.number().integer().positive(),
+  duration_days: Joi.number().integer().positive().allow(null),
+  billing_cycle: Joi.string().valid('one_time', 'monthly'),
+  tier: Joi.string(),
+  features: Joi.array().items(Joi.string()),
+  highlight: Joi.boolean(),
+  display_order: Joi.number().integer().min(0),
+  is_active: Joi.boolean(),
+};
+
 const createPlanSchema = Joi.object({
-  name: Joi.string().required(),
-  description: Joi.string().optional(),
-  price: Joi.number().positive().required(),
-  currency: Joi.string().length(3).default('INR'),
-  quota: Joi.number().integer().positive().required(),
-  duration_days: Joi.number().integer().positive().required(),
-  is_active: Joi.boolean().default(true),
+  ...planShape,
+  name: planShape.name.required(),
+  price: planShape.price.required(),
+  unlock_quota: planShape.unlock_quota.required(),
+  billing_cycle: planShape.billing_cycle.required(),
+});
+const updatePlanSchema = Joi.object(planShape).min(1);
+
+const quoteSchema = Joi.object({
+  size: Joi.number().integer().min(1).max(100).required(),
 });
 
-const updatePlanSchema = Joi.object({
-  name: Joi.string(),
-  description: Joi.string(),
-  price: Joi.number().positive(),
-  quota: Joi.number().integer().positive(),
-  duration_days: Joi.number().integer().positive(),
-  is_active: Joi.boolean(),
-}).min(1);
-
 router.get('/', PlansController.getAll);
+router.get('/quote', validate(quoteSchema, 'query'), PlansController.quoteCart);
 router.get('/:id', PlansController.getById);
 router.post('/', authenticate, requireRole('admin'), validate(createPlanSchema), PlansController.create);
 router.patch('/:id', authenticate, requireRole('admin'), validate(updatePlanSchema), PlansController.update);

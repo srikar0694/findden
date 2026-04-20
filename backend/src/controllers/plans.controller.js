@@ -38,6 +38,20 @@ const PlansController = {
       return next(err);
     }
   },
+
+  /**
+   * GET /plans/quote?size=N
+   * Returns a comparison of all three tiers for a cart of N properties,
+   * along with the `recommended` (cheapest fitting) option.
+   */
+  quoteCart(req, res, next) {
+    try {
+      const size = parseInt(req.query.size, 10) || 1;
+      return success(res, PlansService.quoteCart(size));
+    } catch (err) {
+      return next(err);
+    }
+  },
 };
 
 module.exports = PlansController;

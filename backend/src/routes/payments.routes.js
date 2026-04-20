@@ -7,22 +7,29 @@ const { validate } = require('../middlewares/validate.middleware');
 const router = express.Router();
 
 const initiateSchema = Joi.object({
-  type: Joi.string().valid('subscription', 'pay_per_listing').required(),
-  planId: Joi.string().when('type', { is: 'subscription', then: Joi.required() }),
-  propertyId: Joi.string().optional(),
-});
+  planId: Joi.string().optional(),
+  planSlug: Joi.string().valid('single', 'cart', 'premium').optional(),
+  propertyIds: Joi.array().items(Joi.string()).max(30).optional(),
+}).or('planId', 'planSlug');
 
 const verifySchema = Joi.object({
-  paymentId: Joi.string().required(),
+  razorpay_order_id: Joi.string().required(),
+  razorpay_payment_id: Joi.string().required(),
+  razorpay_signature: Joi.string().required(),
+  propertyIds: Joi.array().items(Joi.string()).max(30).optional(),
+});
+
+// Sandbox helper — only active when RZP SDK is NOT wired.  The frontend calls
+// this to produce a valid HMAC for the fake payment event so the verify call
+// exercises the real signature check.
+const sandboxSignSchema = Joi.object({
   orderId: Joi.string().required(),
-  signature: Joi.string().optional(),
-  type: Joi.string().valid('subscription', 'pay_per_listing').required(),
-  planId: Joi.string().optional(),
-  propertyId: Joi.string().optional(),
+  paymentId: Joi.string().required(),
 });
 
 router.post('/initiate', authenticate, validate(initiateSchema), PaymentsController.initiatePayment);
-router.post('/verify', authenticate, validate(verifySchema), PaymentsController.verifyPayment);
-router.get('/history', authenticate, PaymentsController.getHistory);
+router.post('/verify',   authenticate, validate(verifySchema),   PaymentsController.verifyPayment);
+router.post('/sandbox-sign', authenticate, validate(sandboxSignSchema), PaymentsController.sandboxSign);
+router.get('/history',   authenticate, PaymentsController.getHistory);
 
 module.exports = router;

@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Navbar from './components/shared/Navbar';
 import HomePage from './pages/HomePage';
+import SearchPage from './pages/SearchPage';
 import PropertyDetailPage from './pages/PropertyDetailPage';
 import PostPropertyPage from './pages/PostPropertyPage';
 import PricingPage from './pages/PricingPage';
@@ -22,6 +23,7 @@ export default function App() {
         <main className="flex-1">
           <Routes>
             <Route path="/" element={<HomePage />} />
+            <Route path="/search" element={<SearchPage />} />
             <Route path="/property/:id" element={<PropertyDetailPage />} />
             <Route path="/pricing" element={<PricingPage />} />
             <Route path="/login" element={<LoginPage />} />

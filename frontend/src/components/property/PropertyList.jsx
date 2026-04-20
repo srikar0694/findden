@@ -1,6 +1,7 @@
 import PropertyCard from './PropertyCard';
 import Spinner from '../shared/Spinner';
 import { usePropertyStore } from '../../store/propertyStore';
+import { Stagger } from '../motion';
 
 export default function PropertyList({ onCardClick }) {
   const { properties, loading, error, total } = usePropertyStore();
@@ -42,15 +43,18 @@ export default function PropertyList({ onCardClick }) {
         </span>
       </div>
 
-      {/* Cards */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        {properties.map((property) => (
-          <PropertyCard
-            key={property.id}
-            property={property}
-            onClick={() => onCardClick && onCardClick(property)}
-          />
-        ))}
+      {/* Cards (staggered entry animation) */}
+      <div className="flex-1 overflow-y-auto p-3">
+        <Stagger className="space-y-3" stagger={0.05} whileInView={false}>
+          {properties.map((property) => (
+            <Stagger.Item key={property.id}>
+              <PropertyCard
+                property={property}
+                onClick={() => onCardClick && onCardClick(property)}
+              />
+            </Stagger.Item>
+          ))}
+        </Stagger>
         {loading && <Spinner className="py-4" />}
       </div>
     </div>

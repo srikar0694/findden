@@ -1,11 +1,24 @@
+/**
+ * Properties Service
+ * ----------------------------------------------------------------------
+ * Business rules:
+ *   - Posting a property is ALWAYS FREE. No paywall, no quota, no gateway
+ *     call on create().  Monetisation happens on the *buyer* side (contact
+ *     unlocks via the Pricing tiers).
+ *   - Seller contact details (phone, email) are masked for everyone except:
+ *       (a) the owner, or
+ *       (b) an admin, or
+ *       (c) a user who has an active ContactUnlock for this property.
+ */
+
 const { v4: uuidv4 } = require('uuid');
 const PropertyModel = require('../models/property.model');
-const PricingService = require('./pricing.service');
-const TransactionModel = require('../models/transaction.model');
+const ContactUnlockModel = require('../models/contactUnlock.model');
+const WishlistModel = require('../models/wishlist.model');
 const { paginate, applyPagination } = require('../utils/pagination');
 
 const PropertiesService = {
-  async search(query) {
+  async search(query, viewerId = null) {
     const filters = {
       swLat: query.swLat ? parseFloat(query.swLat) : null,
       swLng: query.swLng ? parseFloat(query.swLng) : null,
@@ -18,7 +31,8 @@ const PropertiesService = {
       maxPrice: query.maxPrice ? parseFloat(query.maxPrice) : null,
       bedrooms: query.bedrooms ? parseInt(query.bedrooms, 10) : null,
       furnishing: query.furnishing || null,
-      status: 'active',
+      includeRecentlySold: query.includeSold !== 'false',
+      soldVisibilityDays: 2,
     };
 
     const { rows, total } = PropertyModel.search(filters);
@@ -26,26 +40,38 @@ const PropertiesService = {
     const paginated = applyPagination(rows, offset, limit);
 
     return {
-      data: paginated.map(formatProperty),
+      data: paginated.map((p) => formatProperty(p, viewerId)),
       meta: { ...meta, page, limit },
     };
   },
 
-  getById(id) {
+  /** Mark a property as sold (owner/agent/admin). */
+  async markSold(id, userId, role) {
+    const property = PropertyModel.findById(id);
+    if (!property) return null;
+    if (property.owner_id !== userId && role !== 'admin') {
+      throw Object.assign(new Error('Not authorized to mark this property as sold'),
+        { code: 'FORBIDDEN', statusCode: 403 });
+    }
+    const updated = PropertyModel.markSold(id);
+    return updated ? formatProperty(updated, userId) : null;
+  },
+
+  getById(id, viewerId = null) {
     const property = PropertyModel.findById(id);
     if (!property) return null;
     PropertyModel.incrementViews(id);
-    return formatProperty(property);
+    return formatProperty(property, viewerId);
   },
 
+  /**
+   * Create a property listing.  FREE — no eligibility check, no payment,
+   * no quota deduction.  Only requires auth (enforced by the route layer).
+   */
   async create(ownerId, body) {
+    // Strip any legacy payment field silently — listings are free now.
+    // eslint-disable-next-line no-unused-vars
     const { paymentRef, ...propertyData } = body;
-
-    // Pricing engine check
-    const eligibility = await PricingService.checkPostingEligibility(ownerId, paymentRef);
-    if (!eligibility.canPost) {
-      throw Object.assign(new Error(eligibility.reason), { code: 'PAYMENT_REQUIRED', statusCode: 402 });
-    }
 
     const property = PropertyModel.create({
       id: uuidv4(),
@@ -53,18 +79,7 @@ const PropertiesService = {
       ...propertyData,
       status: 'active',
     });
-
-    // Handle quota deduction or pay-per-listing
-    if (eligibility.method === 'subscription') {
-      await PricingService.deductSubscriptionQuota(
-        eligibility.subscription.id,
-        eligibility.subscription.plan_id
-      );
-    } else if (eligibility.method === 'pay_per_listing') {
-      await PricingService.verifyPayPerListingPayment(paymentRef, ownerId, property.id);
-    }
-
-    return formatProperty(property);
+    return formatProperty(property, ownerId);
   },
 
   async update(id, ownerId, role, partial) {
@@ -74,7 +89,7 @@ const PropertiesService = {
       throw Object.assign(new Error('Not authorized to update this property'), { code: 'FORBIDDEN', statusCode: 403 });
     }
     const updated = PropertyModel.update(id, partial);
-    return updated ? formatProperty(updated) : null;
+    return updated ? formatProperty(updated, ownerId) : null;
   },
 
   async remove(id, userId, role) {
@@ -91,11 +106,22 @@ const PropertiesService = {
     const filtered = query.status ? all.filter((p) => p.status === query.status) : all;
     filtered.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     const { page, limit, offset, meta } = paginate(query, filtered.length);
-    return { data: applyPagination(filtered, offset, limit).map(formatProperty), meta };
+    return {
+      data: applyPagination(filtered, offset, limit).map((p) => formatProperty(p, ownerId)),
+      meta,
+    };
   },
 };
 
-function formatProperty(p) {
+/**
+ * Shape a row for API output, masking contact fields when appropriate.
+ * Never returns raw phone/email unless the caller is entitled.
+ */
+function formatProperty(p, viewerId) {
+  const isOwner = viewerId && p.owner_id === viewerId;
+  const isUnlocked = viewerId ? ContactUnlockModel.hasUnlock(viewerId, p.id) : false;
+  const isWishlisted = viewerId ? !!WishlistModel.findByUserAndProperty(viewerId, p.id) : false;
+
   return {
     id: p.id,
     ownerId: p.owner_id,
@@ -104,6 +130,7 @@ function formatProperty(p) {
     propertyType: p.property_type,
     listingType: p.listing_type,
     status: p.status,
+    soldAt: p.sold_at || null,
     price: p.price,
     priceNegotiable: p.price_negotiable,
     bedrooms: p.bedrooms,
@@ -123,9 +150,40 @@ function formatProperty(p) {
     amenities: p.amenities || [],
     availableFrom: p.available_from,
     viewsCount: p.views_count,
+    possessionStatus: p.possession_status || 'ready_to_move',
+    nearestTransit: p.nearest_transit || [],
     createdAt: p.created_at,
     updatedAt: p.updated_at,
+
+    // --- Viewer-specific projections ---------------------------------------
+    isOwner,
+    isContactUnlocked: isOwner || isUnlocked,
+    isWishlisted,
+
+    // Contact is masked unless owner/unlocked.
+    contact: (isOwner || isUnlocked)
+      ? {
+          phone: p.contact_phone || null,
+          email: p.contact_email || null,
+          name: p.contact_name || null,
+        }
+      : maskContact({
+          phone: p.contact_phone,
+          email: p.contact_email,
+          name: p.contact_name,
+        }),
   };
+}
+
+/** Partially reveal contact info so the UI can hint at a phone/email length. */
+function maskContact({ phone, email, name }) {
+  const maskedPhone = phone ? phone.slice(0, 2) + '•••••' + phone.slice(-2) : null;
+  let maskedEmail = null;
+  if (email && email.includes('@')) {
+    const [user, domain] = email.split('@');
+    maskedEmail = (user.slice(0, 1) + '•••@' + domain);
+  }
+  return { phone: maskedPhone, email: maskedEmail, name: name ? name.split(' ')[0] : null };
 }
 
 module.exports = PropertiesService;
