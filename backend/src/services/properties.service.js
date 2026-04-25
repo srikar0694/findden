@@ -15,6 +15,7 @@ const { v4: uuidv4 } = require('uuid');
 const PropertyModel = require('../models/property.model');
 const ContactUnlockModel = require('../models/contactUnlock.model');
 const WishlistModel = require('../models/wishlist.model');
+const UserModel = require('../models/user.model');
 const { paginate, applyPagination } = require('../utils/pagination');
 
 const PropertiesService = {
@@ -33,6 +34,8 @@ const PropertiesService = {
       furnishing: query.furnishing || null,
       includeRecentlySold: query.includeSold !== 'false',
       soldVisibilityDays: 2,
+      isQuickPost: query.isQuickPost === 'true' ? true : query.isQuickPost === 'false' ? false : undefined,
+      verified: query.verified === 'true' ? true : query.verified === 'false' ? false : undefined,
     };
 
     const { rows, total } = PropertyModel.search(filters);
@@ -78,8 +81,72 @@ const PropertiesService = {
       owner_id: ownerId,
       ...propertyData,
       status: 'active',
+      verified: false,
+      verified_at: null,
+      verified_by: null,
+      is_quick_post: !!propertyData.is_quick_post,
     });
     return formatProperty(property, ownerId);
+  },
+
+  /**
+   * Quick Post — abbreviated create flow per CR §QuickPost.
+   * Auto-fills required fields the buyer-facing schema needs (title,
+   * description, address) from the limited inputs.
+   */
+  async quickCreate(ownerId, body) {
+    const owner = UserModel.findById(ownerId);
+    const cityLabel = body.city || 'My Area';
+    const bhkLabel = body.bhk ? `${body.bhk}BHK ` : '';
+    const title = `${bhkLabel}${body.property_type[0].toUpperCase()}${body.property_type.slice(1)} in ${cityLabel}`;
+
+    const property = PropertyModel.create({
+      id: uuidv4(),
+      owner_id: ownerId,
+      title,
+      description: '',
+      property_type: body.property_type,
+      listing_type: body.listing_type || 'rent',
+      status: 'active',
+      price: body.price,
+      price_negotiable: false,
+      bedrooms: body.bhk || null,
+      bathrooms: null,
+      area_sqft: null,
+      furnishing: 'unfurnished',
+      address_line: body.address_line || cityLabel,
+      city: cityLabel,
+      state: body.state || (owner && owner.state) || '—',
+      pincode: body.pincode || '000000',
+      latitude: body.latitude,
+      longitude: body.longitude,
+      images: body.images || [],
+      amenities: [],
+      available_from: null,
+      possession_status: 'ready_to_move',
+      nearest_transit: [],
+      contact_name: body.owner_name,
+      contact_phone: body.contact_phone,
+      contact_email: body.contact_email || (owner && owner.email) || null,
+      bhk: body.bhk || null,
+      verified: false,
+      verified_at: null,
+      verified_by: null,
+      is_quick_post: true,
+    });
+    return formatProperty(property, ownerId);
+  },
+
+  /** Admin-only — toggle the verified flag. */
+  async setVerified(id, adminId, verified) {
+    const property = PropertyModel.findById(id);
+    if (!property) return null;
+    const updated = PropertyModel.update(id, {
+      verified: !!verified,
+      verified_at: verified ? new Date().toISOString() : null,
+      verified_by: verified ? adminId : null,
+    });
+    return updated ? formatProperty(updated, adminId) : null;
   },
 
   async update(id, ownerId, role, partial) {
@@ -152,6 +219,10 @@ function formatProperty(p, viewerId) {
     viewsCount: p.views_count,
     possessionStatus: p.possession_status || 'ready_to_move',
     nearestTransit: p.nearest_transit || [],
+    verified: !!p.verified,
+    verifiedAt: p.verified_at || null,
+    isQuickPost: !!p.is_quick_post,
+    bhk: p.bhk ?? null,
     createdAt: p.created_at,
     updatedAt: p.updated_at,
 

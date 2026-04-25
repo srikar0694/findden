@@ -8,6 +8,9 @@ const dashboardRoutes = require('./dashboard.routes');
 const contactsRoutes = require('./contacts.routes');
 const wishlistRoutes = require('./wishlist.routes');
 const notificationsRoutes = require('./notifications.routes');
+const uploadsRoutes = require('./uploads.routes');
+const messagesRoutes = require('./messages.routes');
+const adminRoutes = require('./admin.routes');
 
 const router = express.Router();
 
@@ -24,5 +27,8 @@ router.use('/dashboard', dashboardRoutes);
 router.use('/contacts', contactsRoutes);
 router.use('/wishlist', wishlistRoutes);
 router.use('/notifications', notificationsRoutes);
+router.use('/uploads', uploadsRoutes);
+router.use('/messages', messagesRoutes);
+router.use('/admin', adminRoutes);
 
 module.exports = router;

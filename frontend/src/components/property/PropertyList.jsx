@@ -3,8 +3,9 @@ import Spinner from '../shared/Spinner';
 import { usePropertyStore } from '../../store/propertyStore';
 import { Stagger } from '../motion';
 
-export default function PropertyList({ onCardClick }) {
+export default function PropertyList({ onCardClick, layout = 'column' }) {
   const { properties, loading, error, total } = usePropertyStore();
+  const isGrid = layout === 'grid';
 
   if (loading && properties.length === 0) {
     return (
@@ -45,13 +46,23 @@ export default function PropertyList({ onCardClick }) {
 
       {/* Cards (staggered entry animation) */}
       <div className="flex-1 overflow-y-auto p-3">
-        <Stagger className="space-y-3" stagger={0.05} whileInView={false}>
+        <Stagger
+          className={
+            isGrid
+              ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-stretch'
+              : 'space-y-3'
+          }
+          stagger={0.05}
+          whileInView={false}
+        >
           {properties.map((property) => (
-            <Stagger.Item key={property.id}>
-              <PropertyCard
-                property={property}
-                onClick={() => onCardClick && onCardClick(property)}
-              />
+            <Stagger.Item key={property.id} className="h-full">
+              <div id={`prop-card-${property.id}`} className="h-full">
+                <PropertyCard
+                  property={property}
+                  onClick={() => onCardClick && onCardClick(property)}
+                />
+              </div>
             </Stagger.Item>
           ))}
         </Stagger>

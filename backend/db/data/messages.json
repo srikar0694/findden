@@ -1,0 +1,41 @@
+[
+  {
+    "id": "3186add2-2d77-4128-99d5-e82813150b7d",
+    "sender_id": "5cdf3e3e-0c8b-4b25-855a-d63645ed582e",
+    "sender_name": "Smoke4",
+    "sender_phone": null,
+    "sender_email": "smoke4@test.example.com",
+    "recipient_id": "user-owner-004",
+    "property_id": "prop-015",
+    "body": "Hi, is this still available?",
+    "read": false,
+    "created_at": "2026-04-25T11:40:28.462Z",
+    "updated_at": "2026-04-25T11:40:28.462Z"
+  },
+  {
+    "id": "72ce8ae6-ada0-407c-9c9e-84b261cc32db",
+    "sender_id": "5cdf3e3e-0c8b-4b25-855a-d63645ed582e",
+    "sender_name": "Smoke4",
+    "sender_phone": null,
+    "sender_email": "smoke4@test.example.com",
+    "recipient_id": "user-owner-004",
+    "property_id": "prop-015",
+    "body": "msg 1",
+    "read": false,
+    "created_at": "2026-04-25T11:40:28.507Z",
+    "updated_at": "2026-04-25T11:40:28.507Z"
+  },
+  {
+    "id": "e7e35851-8e02-4148-a18c-d310ee851cf1",
+    "sender_id": "5cdf3e3e-0c8b-4b25-855a-d63645ed582e",
+    "sender_name": "Smoke4",
+    "sender_phone": null,
+    "sender_email": "smoke4@test.example.com",
+    "recipient_id": "user-owner-004",
+    "property_id": "prop-015",
+    "body": "msg 2",
+    "read": false,
+    "created_at": "2026-04-25T11:40:28.518Z",
+    "updated_at": "2026-04-25T11:40:28.518Z"
+  }
+]

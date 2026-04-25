@@ -33,9 +33,14 @@
       "power_backup"
     ],
     "available_from": "2026-04-15",
-    "views_count": 342,
+    "views_count": 349,
     "created_at": "2026-03-01T10:00:00.000Z",
-    "updated_at": "2026-03-01T10:00:00.000Z"
+    "updated_at": "2026-04-25T12:32:05.735Z",
+    "verified": false,
+    "verified_at": null,
+    "verified_by": null,
+    "is_quick_post": false,
+    "bhk": null
   },
   {
     "id": "prop-002",
@@ -74,7 +79,12 @@
     "available_from": "2026-05-01",
     "views_count": 893,
     "created_at": "2026-03-05T11:00:00.000Z",
-    "updated_at": "2026-04-19T10:22:16.506Z"
+    "updated_at": "2026-04-19T10:22:16.506Z",
+    "verified": false,
+    "verified_at": null,
+    "verified_by": null,
+    "is_quick_post": false,
+    "bhk": null
   },
   {
     "id": "prop-003",
@@ -110,7 +120,12 @@
     "available_from": "2026-04-10",
     "views_count": 215,
     "created_at": "2026-03-08T14:00:00.000Z",
-    "updated_at": "2026-03-08T14:00:00.000Z"
+    "updated_at": "2026-03-08T14:00:00.000Z",
+    "verified": false,
+    "verified_at": null,
+    "verified_by": null,
+    "is_quick_post": false,
+    "bhk": null
   },
   {
     "id": "prop-004",
@@ -150,7 +165,12 @@
     "available_from": "2026-06-01",
     "views_count": 2104,
     "created_at": "2026-02-20T09:00:00.000Z",
-    "updated_at": "2026-02-20T09:00:00.000Z"
+    "updated_at": "2026-02-20T09:00:00.000Z",
+    "verified": false,
+    "verified_at": null,
+    "verified_by": null,
+    "is_quick_post": false,
+    "bhk": null
   },
   {
     "id": "prop-005",
@@ -188,7 +208,12 @@
     "available_from": "2026-04-20",
     "views_count": 567,
     "created_at": "2026-03-10T12:00:00.000Z",
-    "updated_at": "2026-03-10T12:00:00.000Z"
+    "updated_at": "2026-03-10T12:00:00.000Z",
+    "verified": false,
+    "verified_at": null,
+    "verified_by": null,
+    "is_quick_post": false,
+    "bhk": null
   },
   {
     "id": "prop-006",
@@ -224,7 +249,12 @@
     "available_from": "2026-05-15",
     "views_count": 440,
     "created_at": "2026-03-12T15:00:00.000Z",
-    "updated_at": "2026-04-20T06:47:19.649Z"
+    "updated_at": "2026-04-20T06:47:19.649Z",
+    "verified": false,
+    "verified_at": null,
+    "verified_by": null,
+    "is_quick_post": false,
+    "bhk": null
   },
   {
     "id": "prop-007",
@@ -262,7 +292,12 @@
     "available_from": "2026-04-01",
     "views_count": 316,
     "created_at": "2026-03-15T10:00:00.000Z",
-    "updated_at": "2026-04-18T14:34:09.902Z"
+    "updated_at": "2026-04-18T14:34:09.902Z",
+    "verified": false,
+    "verified_at": null,
+    "verified_by": null,
+    "is_quick_post": false,
+    "bhk": null
   },
   {
     "id": "prop-008",
@@ -296,9 +331,14 @@
       "power_backup"
     ],
     "available_from": "2026-04-25",
-    "views_count": 289,
+    "views_count": 291,
     "created_at": "2026-03-18T11:00:00.000Z",
-    "updated_at": "2026-03-18T11:00:00.000Z"
+    "updated_at": "2026-04-25T11:45:01.331Z",
+    "verified": false,
+    "verified_at": null,
+    "verified_by": null,
+    "is_quick_post": false,
+    "bhk": null
   },
   {
     "id": "prop-009",
@@ -334,7 +374,12 @@
     "available_from": "2026-06-15",
     "views_count": 743,
     "created_at": "2026-03-20T14:00:00.000Z",
-    "updated_at": "2026-03-20T14:00:00.000Z"
+    "updated_at": "2026-03-20T14:00:00.000Z",
+    "verified": false,
+    "verified_at": null,
+    "verified_by": null,
+    "is_quick_post": false,
+    "bhk": null
   },
   {
     "id": "prop-010",
@@ -367,9 +412,14 @@
       "electricity"
     ],
     "available_from": "2026-04-01",
-    "views_count": 205,
+    "views_count": 210,
     "created_at": "2026-03-22T09:00:00.000Z",
-    "updated_at": "2026-04-20T07:00:52.931Z"
+    "updated_at": "2026-04-25T07:58:34.275Z",
+    "verified": false,
+    "verified_at": null,
+    "verified_by": null,
+    "is_quick_post": false,
+    "bhk": null
   },
   {
     "id": "prop-011",
@@ -406,7 +456,12 @@
     "available_from": "2026-04-05",
     "views_count": 156,
     "created_at": "2026-03-25T10:00:00.000Z",
-    "updated_at": "2026-03-25T10:00:00.000Z"
+    "updated_at": "2026-03-25T10:00:00.000Z",
+    "verified": false,
+    "verified_at": null,
+    "verified_by": null,
+    "is_quick_post": false,
+    "bhk": null
   },
   {
     "id": "prop-012",
@@ -442,9 +497,14 @@
       "security"
     ],
     "available_from": "2026-05-01",
-    "views_count": 1209,
+    "views_count": 1211,
     "created_at": "2026-03-28T13:00:00.000Z",
-    "updated_at": "2026-04-19T10:15:44.691Z"
+    "updated_at": "2026-04-25T11:45:28.980Z",
+    "verified": false,
+    "verified_at": null,
+    "verified_by": null,
+    "is_quick_post": false,
+    "bhk": null
   },
   {
     "id": "prop-013",
@@ -478,7 +538,12 @@
     "available_from": "2026-04-01",
     "views_count": 93,
     "created_at": "2026-04-01T10:00:00.000Z",
-    "updated_at": "2026-04-19T10:21:35.984Z"
+    "updated_at": "2026-04-19T10:21:35.984Z",
+    "verified": false,
+    "verified_at": null,
+    "verified_by": null,
+    "is_quick_post": false,
+    "bhk": null
   },
   {
     "id": "prop-014",
@@ -515,9 +580,14 @@
       "home_theatre"
     ],
     "available_from": "2026-07-01",
-    "views_count": 3245,
+    "views_count": 3247,
     "created_at": "2026-04-01T12:00:00.000Z",
-    "updated_at": "2026-04-20T07:44:11.366Z"
+    "updated_at": "2026-04-25T08:03:18.142Z",
+    "verified": false,
+    "verified_at": null,
+    "verified_by": null,
+    "is_quick_post": false,
+    "bhk": null
   },
   {
     "id": "prop-015",
@@ -553,8 +623,50 @@
       "metro_nearby"
     ],
     "available_from": "2026-06-01",
-    "views_count": 632,
+    "views_count": 633,
     "created_at": "2026-04-02T09:00:00.000Z",
-    "updated_at": "2026-04-20T07:01:37.216Z"
+    "updated_at": "2026-04-25T11:40:28.477Z",
+    "verified": false,
+    "verified_at": null,
+    "verified_by": null,
+    "is_quick_post": false,
+    "bhk": null
+  },
+  {
+    "id": "4a538f1a-9741-479c-8549-81fde588ce48",
+    "owner_id": "5cdf3e3e-0c8b-4b25-855a-d63645ed582e",
+    "title": "Plot in Bangalore",
+    "description": "",
+    "property_type": "plot",
+    "listing_type": "sale",
+    "status": "active",
+    "price": 1500000,
+    "price_negotiable": false,
+    "bedrooms": null,
+    "bathrooms": null,
+    "area_sqft": null,
+    "furnishing": "unfurnished",
+    "address_line": "Bangalore",
+    "city": "Bangalore",
+    "state": "—",
+    "pincode": "000000",
+    "latitude": 12.97,
+    "longitude": 77.59,
+    "images": [],
+    "amenities": [],
+    "available_from": null,
+    "possession_status": "ready_to_move",
+    "nearest_transit": [],
+    "contact_name": "Smoke User",
+    "contact_phone": "9999999996",
+    "contact_email": "smoke4@test.example.com",
+    "bhk": null,
+    "verified": false,
+    "verified_at": null,
+    "verified_by": null,
+    "is_quick_post": true,
+    "views_count": 7,
+    "created_at": "2026-04-25T11:40:28.495Z",
+    "updated_at": "2026-04-25T12:31:03.129Z"
   }
 ]

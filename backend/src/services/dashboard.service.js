@@ -2,6 +2,9 @@ const PropertyModel = require('../models/property.model');
 const TransactionModel = require('../models/transaction.model');
 const PricingService = require('./pricing.service');
 const UserModel = require('../models/user.model');
+const WishlistModel = require('../models/wishlist.model');
+const MessagesService = require('./messages.service');
+const PropertiesService = require('./properties.service');
 
 const DashboardService = {
   getSummary(userId) {
@@ -43,6 +46,25 @@ const DashboardService = {
         createdAt: p.created_at,
       }));
 
+    // Favourites — wishlisted properties hydrated for the dashboard tab.
+    const wishlist = WishlistModel.findByUserId
+      ? WishlistModel.findByUserId(userId)
+      : [];
+    const favoriteProperties = wishlist
+      .map((w) => {
+        const p = PropertyModel.findById(w.property_id || w.propertyId);
+        return p ? PropertiesService.getById(p.id, userId) : null;
+      })
+      .filter(Boolean);
+
+    // Contacted properties — anything the buyer has messaged.
+    const contactedProperties = MessagesService
+      .contactedProperties(userId)
+      .map((p) => PropertiesService.getById(p.id, userId))
+      .filter(Boolean);
+
+    const messageQuota = MessagesService.getQuotaStatus(userId);
+
     return {
       user: {
         id: user.id,
@@ -51,6 +73,9 @@ const DashboardService = {
         role: user.role,
         avatarUrl: user.avatar_url,
       },
+      favorites: favoriteProperties,
+      contacted: contactedProperties,
+      messageQuota,
       subscription: subscription
         ? {
             plan: subscription.plan ? subscription.plan.name : 'Unknown',

@@ -5,6 +5,7 @@ import { timeAgo } from '../../utils/formatDate';
 import { cardHover } from '../motion/variants';
 import { useAuthStore } from '../../store/authStore';
 import { useWishlistStore } from '../../store/wishlistStore';
+import { resolveImageUrl } from './ImageUploader';
 
 const TYPE_LABELS = {
   apartment: 'Apartment', house: 'House', villa: 'Villa',
@@ -19,7 +20,7 @@ export default function PropertyCard({ property, isSelected, onClick }) {
   const {
     id, title, propertyType, listingType, price, bedrooms, bathrooms,
     areaSqft, furnishing, city, state, addressLine, thumbnail, images,
-    createdAt, viewsCount, status, nearestTransit,
+    createdAt, viewsCount, status, nearestTransit, verified, isQuickPost,
   } = property;
 
   const { token } = useAuthStore();
@@ -28,7 +29,7 @@ export default function PropertyCard({ property, isSelected, onClick }) {
   const toggleWishlist = useWishlistStore((s) => s.toggle);
   const isWishlisted = wishlistIds.has(id) || property.isWishlisted;
 
-  const img = thumbnail || images?.[0] || 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=400';
+  const img = resolveImageUrl(thumbnail || images?.[0]) || 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=400';
   const priceStr = listingType === 'rent' ? formatRent(price) : formatCurrency(price);
   const isSold = status === 'sold' || status === 'rented';
   const topTransit = Array.isArray(nearestTransit) && nearestTransit.length
@@ -69,7 +70,7 @@ export default function PropertyCard({ property, isSelected, onClick }) {
             className={`w-full h-full object-cover ${isSold ? 'grayscale-[40%]' : ''}`}
             onError={(e) => { e.target.src = 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=400'; }}
           />
-          <div className="absolute top-2 left-2 flex gap-1.5">
+          <div className="absolute top-2 left-2 flex gap-1.5 flex-wrap max-w-[calc(100%-3.5rem)]">
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
               listingType === 'sale' ? 'bg-green-600 text-white' : 'bg-blue-600 text-white'
             }`}>
@@ -78,6 +79,11 @@ export default function PropertyCard({ property, isSelected, onClick }) {
             <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-white text-gray-700 shadow-sm">
               {TYPE_LABELS[propertyType] || propertyType}
             </span>
+            {isQuickPost && (
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-500 text-white shadow-sm">
+                ⚡ Quick
+              </span>
+            )}
           </div>
 
           {/* Wishlist heart */}
@@ -120,7 +126,18 @@ export default function PropertyCard({ property, isSelected, onClick }) {
         {/* Content */}
         <div className="p-3">
           <div className="flex justify-between items-start gap-2">
-            <h3 className="text-sm font-semibold text-gray-900 line-clamp-2 flex-1">{title}</h3>
+            <h3 className="text-sm font-semibold text-gray-900 line-clamp-2 flex-1 flex items-start gap-1">
+              <span className="line-clamp-2">{title}</span>
+              {verified && (
+                <span
+                  title="Verified by FindDen"
+                  aria-label="Verified property"
+                  className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] font-bold leading-none shrink-0 mt-0.5"
+                >
+                  ✓
+                </span>
+              )}
+            </h3>
             <span className="text-blue-700 font-bold text-sm whitespace-nowrap">{priceStr}</span>
           </div>
 

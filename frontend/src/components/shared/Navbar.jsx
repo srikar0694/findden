@@ -88,7 +88,9 @@ export default function Navbar() {
             {token && (
               <>
                 <NavItem to="/post-property">Post Property</NavItem>
+                <NavItem to="/quick-post">⚡ Quick Post</NavItem>
                 <NavItem to="/dashboard">Dashboard</NavItem>
+                {user?.role === 'admin' && <NavItem to="/admin">Admin</NavItem>}
               </>
             )}
           </div>

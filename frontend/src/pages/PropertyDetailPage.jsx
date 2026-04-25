@@ -10,6 +10,7 @@ import Spinner from '../components/shared/Spinner';
 import { useAuthStore } from '../store/authStore';
 import { useWishlistStore } from '../store/wishlistStore';
 import { runCheckout } from '../services/razorpay';
+import { resolveImageUrl } from '../components/property/ImageUploader';
 
 const TYPE_LABELS = {
   apartment: 'Apartment', house: 'House', villa: 'Villa',
@@ -174,7 +175,7 @@ export default function PropertyDetailPage() {
           {/* Image gallery */}
           <div className="rounded-xl overflow-hidden bg-gray-100 relative">
             <img
-              src={property.images[activeImg] || property.thumbnail}
+              src={resolveImageUrl(property.images[activeImg] || property.thumbnail)}
               alt={property.title}
               className="w-full h-72 object-cover"
               onError={(e) => { e.target.src = 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=800'; }}
@@ -204,11 +205,11 @@ export default function PropertyDetailPage() {
             )}
 
             {property.images.length > 1 && (
-              <div className="flex gap-2 p-2">
+              <div className="flex gap-2 p-2 overflow-x-auto">
                 {property.images.map((img, i) => (
                   <img
                     key={i}
-                    src={img}
+                    src={resolveImageUrl(img)}
                     alt=""
                     onClick={() => setActiveImg(i)}
                     className={`h-16 w-20 object-cover rounded cursor-pointer border-2 transition-all ${
@@ -234,6 +235,20 @@ export default function PropertyDetailPage() {
               {isWishlisted && (
                 <span className="text-xs font-medium px-2 py-1 rounded-full bg-rose-50 text-rose-600">
                   ♥ In wishlist
+                </span>
+              )}
+              {property.verified && (
+                <span
+                  title="Verified by FindDen"
+                  className="text-xs font-semibold px-2 py-1 rounded-full bg-blue-100 text-blue-700 inline-flex items-center gap-1"
+                >
+                  <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-blue-600 text-white text-[9px] font-bold leading-none">✓</span>
+                  Verified
+                </span>
+              )}
+              {property.isQuickPost && (
+                <span className="text-xs font-medium px-2 py-1 rounded-full bg-amber-50 text-amber-700">
+                  ⚡ Quick post
                 </span>
               )}
             </div>
