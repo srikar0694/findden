@@ -81,6 +81,29 @@ const PropertiesController = {
       return next(err);
     }
   },
+
+  async quickCreate(req, res, next) {
+    try {
+      const property = await PropertiesService.quickCreate(req.user.id, req.body);
+      return created(res, property);
+    } catch (err) {
+      return next(err);
+    }
+  },
+
+  async setVerified(req, res, next) {
+    try {
+      const property = await PropertiesService.setVerified(
+        req.params.id,
+        req.user.id,
+        req.body.verified !== false,
+      );
+      if (!property) return notFound(res, 'Property not found');
+      return success(res, property);
+    } catch (err) {
+      return next(err);
+    }
+  },
 };
 
 module.exports = PropertiesController;

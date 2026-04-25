@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { propertiesService } from '../services/properties.service';
 import Spinner from '../components/shared/Spinner';
+import LocationPicker from '../components/map/LocationPicker';
+import ImageUploader from '../components/property/ImageUploader';
+import { useAuthStore } from '../store/authStore';
 
 const PROPERTY_TYPES = ['apartment', 'house', 'villa', 'plot', 'commercial', 'pg'];
 const LISTING_TYPES = ['sale', 'rent'];
@@ -14,6 +17,7 @@ const AMENITY_OPTIONS = [
 
 export default function PostPropertyPage() {
   const navigate = useNavigate();
+  const { user } = useAuthStore();
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -40,9 +44,24 @@ export default function PostPropertyPage() {
     amenities: [],
     available_from: '',
     images: [],
+    contact_name: '',
+    contact_phone: '',
+    contact_email: '',
   });
 
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
+  const setMany = (patch) => setForm((f) => ({ ...f, ...patch }));
+
+  // Pre-populate contact details from the signed-in user (CR §1.3) — editable.
+  useEffect(() => {
+    if (!user) return;
+    setForm((f) => ({
+      ...f,
+      contact_name:  f.contact_name  || user.name  || '',
+      contact_phone: f.contact_phone || user.phone || '',
+      contact_email: f.contact_email || user.email || '',
+    }));
+  }, [user]);
 
   const toggleAmenity = (amenity) => {
     setForm((f) => ({
@@ -81,6 +100,15 @@ export default function PostPropertyPage() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const locationValue = {
+    latitude: form.latitude,
+    longitude: form.longitude,
+    address_line: form.address_line,
+    city: form.city,
+    state: form.state,
+    pincode: form.pincode,
   };
 
   return (
@@ -165,6 +193,34 @@ export default function PostPropertyPage() {
               </div>
             </div>
 
+            {/* Contact details — pre-populated, fully editable (CR §1.3) */}
+            <div className="border border-gray-200 rounded-lg p-3 bg-gray-50/50">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-gray-700">Contact details</h3>
+                <span className="text-xs text-gray-400">Pre-filled from your profile · editable</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Owner Name *</label>
+                  <input type="text" value={form.contact_name} onChange={(e) => set('contact_name', e.target.value)}
+                    required
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Phone *</label>
+                  <input type="tel" value={form.contact_phone} onChange={(e) => set('contact_phone', e.target.value)}
+                    required pattern="[0-9+\-\s]{7,20}"
+                    placeholder="9876543210"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
+                  <input type="email" value={form.contact_email} onChange={(e) => set('contact_email', e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+                </div>
+              </div>
+            </div>
+
             <button type="button" onClick={() => setStep(2)}
               className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-semibold text-sm hover:bg-blue-700 transition-colors">
               Continue →
@@ -175,6 +231,25 @@ export default function PostPropertyPage() {
         {/* Step 2: Location */}
         {step === 2 && (
           <div className="space-y-5">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Pin your property on the map *</label>
+              <p className="text-xs text-gray-500 mb-2">
+                Allow location access to drop the pin automatically, or click on the map to place it.
+                The address fields below will be filled in for you — you can refine them if needed.
+              </p>
+              <LocationPicker
+                value={locationValue}
+                onChange={(v) => setMany({
+                  latitude:     v.latitude     ?? form.latitude,
+                  longitude:    v.longitude    ?? form.longitude,
+                  address_line: v.address_line ?? form.address_line,
+                  city:         v.city         ?? form.city,
+                  state:        v.state        ?? form.state,
+                  pincode:      v.pincode      ?? form.pincode,
+                })}
+              />
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Street Address *</label>
               <input type="text" value={form.address_line} onChange={(e) => set('address_line', e.target.value)}
@@ -201,29 +276,19 @@ export default function PostPropertyPage() {
                 placeholder="560034" required pattern="[0-9]{5,10}"
                 className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Latitude *</label>
-                <input type="number" value={form.latitude} onChange={(e) => set('latitude', e.target.value)}
-                  placeholder="12.9352" required step="any"
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Longitude *</label>
-                <input type="number" value={form.longitude} onChange={(e) => set('longitude', e.target.value)}
-                  placeholder="77.6245" required step="any"
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
-            </div>
-            <p className="text-xs text-gray-400">💡 Tip: Find lat/lng from Google Maps (right-click → "What's here?")</p>
 
             <div className="flex gap-3">
               <button type="button" onClick={() => setStep(1)}
                 className="flex-1 border border-gray-300 text-gray-700 py-2.5 rounded-lg font-semibold text-sm hover:bg-gray-50 transition-colors">
                 ← Back
               </button>
-              <button type="button" onClick={() => setStep(3)}
-                className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg font-semibold text-sm hover:bg-blue-700 transition-colors">
+              <button
+                type="button"
+                onClick={() => setStep(3)}
+                disabled={!form.latitude || !form.longitude}
+                title={!form.latitude || !form.longitude ? 'Please drop a pin first' : ''}
+                className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg font-semibold text-sm hover:bg-blue-700 transition-colors disabled:opacity-60"
+              >
                 Continue →
               </button>
             </div>
@@ -282,6 +347,13 @@ export default function PostPropertyPage() {
                 ))}
               </div>
             </div>
+
+            {/* Image upload (CR §1.2) */}
+            <ImageUploader
+              value={form.images}
+              onChange={(imgs) => set('images', imgs)}
+              max={10}
+            />
 
             <div className="flex gap-3">
               <button type="button" onClick={() => setStep(2)}

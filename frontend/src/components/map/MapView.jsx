@@ -4,6 +4,7 @@ import { usePropertyStore } from '../../store/propertyStore';
 import { debounce } from '../../utils/debounce';
 import { formatCurrency, formatRent } from '../../utils/formatCurrency';
 import { Link } from 'react-router-dom';
+import { resolveImageUrl } from '../property/ImageUploader';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
@@ -25,8 +26,13 @@ const mapOptions = {
 };
 
 export default function MapView({ onBoundsChange, onMarkerClick }) {
-  const { properties, selectedPropertyId } = usePropertyStore();
+  const properties = usePropertyStore((s) => s.properties);
+  const selectedPropertyId = usePropertyStore((s) => s.selectedPropertyId);
+  const setSelectedProperty = usePropertyStore((s) => s.setSelectedProperty);
   const mapRef = useRef(null);
+  // Track which selectedPropertyId we've already reacted to so the popup doesn't
+  // re-open after the user closes it (CR §3 — Map View bug fix).
+  const lastSelectedRef = useRef(null);
   const [activeMarker, setActiveMarker] = useState(null);
 
   const { isLoaded, loadError } = useJsApiLoader({
@@ -62,17 +68,39 @@ export default function MapView({ onBoundsChange, onMarkerClick }) {
     if (mapRef.current) debouncedBoundsChange(mapRef.current);
   }, [debouncedBoundsChange]);
 
-  // Pan to selected property
+  // Pan to selected property *only* when the selection actually changes.
+  // Previously this depended on `properties` too, which caused the popup to
+  // re-open every time the property list refreshed — even after the user had
+  // explicitly closed it (CR §3 bug).
   useEffect(() => {
-    if (selectedPropertyId && mapRef.current) {
-      const prop = properties.find((p) => p.id === selectedPropertyId);
-      if (prop) {
-        mapRef.current.panTo({ lat: prop.latitude, lng: prop.longitude });
-        mapRef.current.setZoom(14);
-        setActiveMarker(prop.id);
-      }
+    if (!mapRef.current) return;
+    if (selectedPropertyId === lastSelectedRef.current) return;
+    lastSelectedRef.current = selectedPropertyId;
+
+    if (!selectedPropertyId) {
+      setActiveMarker(null);
+      return;
     }
-  }, [selectedPropertyId, properties]);
+    const prop = properties.find((p) => p.id === selectedPropertyId);
+    if (prop) {
+      mapRef.current.panTo({ lat: prop.latitude, lng: prop.longitude });
+      mapRef.current.setZoom(14);
+      setActiveMarker(prop.id);
+    }
+    // We intentionally exclude `properties` from the deps array here so that
+    // a new fetch doesn't re-trigger the popup. Looking up the property by id
+    // from the latest list is fine because this effect runs whenever the
+    // selection changes (which is the only time we want to react).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPropertyId]);
+
+  // Closing the popup must also clear the store selection so the pan-effect
+  // doesn't re-fire on the next list refresh.
+  const handleCloseInfoWindow = useCallback(() => {
+    setActiveMarker(null);
+    lastSelectedRef.current = null;
+    setSelectedProperty(null);
+  }, [setSelectedProperty]);
 
   if (loadError) {
     return (
@@ -127,13 +155,14 @@ export default function MapView({ onBoundsChange, onMarkerClick }) {
         if (!prop) return null;
         return (
           <InfoWindowF
+            key={`iw-${prop.id}`}
             position={{ lat: prop.latitude, lng: prop.longitude }}
-            onCloseClick={() => setActiveMarker(null)}
+            onCloseClick={handleCloseInfoWindow}
           >
             <div className="max-w-xs">
               {prop.thumbnail && (
                 <img
-                  src={prop.thumbnail}
+                  src={resolveImageUrl(prop.thumbnail)}
                   alt={prop.title}
                   className="w-full h-28 object-cover rounded-t-md mb-2"
                 />

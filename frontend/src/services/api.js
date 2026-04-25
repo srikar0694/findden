@@ -26,11 +26,14 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    const message =
-      error.response?.data?.error?.message || error.message || 'Something went wrong';
-    const code = error.response?.data?.error?.code || 'ERROR';
+    const env = error.response?.data?.error || {};
+    const message = env.message || error.message || 'Something went wrong';
+    const code = env.code || 'ERROR';
     const status = error.response?.status || 0;
-    return Promise.reject({ message, code, status });
+    // Pass through any extra metadata the server attached to the error envelope
+    // (e.g. `redirectTo` for quota-exceeded → /pricing).
+    const { message: _m, code: _c, ...extra } = env;
+    return Promise.reject({ message, code, status, ...extra });
   }
 );
 

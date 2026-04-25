@@ -2,10 +2,18 @@ const express = require('express');
 const Joi = require('joi');
 const PropertiesController = require('../controllers/properties.controller');
 const { authenticate, optionalAuth } = require('../middlewares/auth.middleware');
+const { requireRole } = require('../middlewares/rbac.middleware');
 const { validate } = require('../middlewares/validate.middleware');
 const { PROPERTY_TYPES, LISTING_TYPES, FURNISHING_TYPES, PROPERTY_STATUSES } = require('../config/constants');
 
 const router = express.Router();
+
+// Image references can be either a full URI (e.g. https://images.unsplash.com/…)
+// or a path served by our /uploads static handler (e.g. /uploads/properties/…).
+const imageRef = Joi.alternatives().try(
+  Joi.string().uri(),
+  Joi.string().pattern(/^\/uploads\/[\w./-]+$/),
+);
 
 const transitItemSchema = Joi.object({
   type: Joi.string().valid('metro', 'bus', 'train', 'airport').required(),
@@ -32,7 +40,7 @@ const createPropertySchema = Joi.object({
   pincode: Joi.string().pattern(/^[0-9]{5,10}$/).required(),
   latitude: Joi.number().min(-90).max(90).required(),
   longitude: Joi.number().min(-180).max(180).required(),
-  images: Joi.array().items(Joi.string().uri()).default([]),
+  images: Joi.array().items(imageRef).default([]),
   amenities: Joi.array().items(Joi.string()).default([]),
   available_from: Joi.string().isoDate().optional(),
   // Project lifecycle: ready_to_move | under_construction | pre_launch | upcoming
@@ -46,6 +54,31 @@ const createPropertySchema = Joi.object({
   contact_name: Joi.string().max(120).optional(),
   contact_phone: Joi.string().pattern(/^[0-9+\-\s]{6,20}$/).optional(),
   contact_email: Joi.string().email().optional(),
+  bhk: Joi.number().integer().min(1).max(10).optional(),
+});
+
+// Quick Post — minimal required fields. Defaults are filled in by the service.
+// CR §QuickPost.4 spec field order: owner_name, location pin, phone, price,
+// property_type, BHK (if house/apartment/villa).
+const quickPostSchema = Joi.object({
+  owner_name: Joi.string().min(2).max(120).required(),
+  latitude: Joi.number().min(-90).max(90).required(),
+  longitude: Joi.number().min(-180).max(180).required(),
+  contact_phone: Joi.string().pattern(/^[0-9+\-\s]{6,20}$/).required(),
+  contact_email: Joi.string().email().optional(),
+  price: Joi.number().positive().required(),
+  property_type: Joi.string().valid(...PROPERTY_TYPES).required(),
+  listing_type: Joi.string().valid(...LISTING_TYPES).default('rent'),
+  bhk: Joi.number().integer().min(1).max(10).optional(),
+  city: Joi.string().optional(),
+  state: Joi.string().optional(),
+  address_line: Joi.string().optional(),
+  pincode: Joi.string().pattern(/^[0-9]{5,10}$/).optional(),
+  images: Joi.array().items(imageRef).default([]),
+});
+
+const verifySchema = Joi.object({
+  verified: Joi.boolean().default(true),
 });
 
 const updatePropertySchema = Joi.object({
@@ -55,9 +88,19 @@ const updatePropertySchema = Joi.object({
   price_negotiable: Joi.boolean(),
   status: Joi.string().valid(...PROPERTY_STATUSES),
   furnishing: Joi.string().valid(...FURNISHING_TYPES),
-  images: Joi.array().items(Joi.string().uri()),
+  images: Joi.array().items(imageRef),
   amenities: Joi.array().items(Joi.string()),
   available_from: Joi.string().isoDate(),
+  contact_name: Joi.string().max(120),
+  contact_phone: Joi.string().pattern(/^[0-9+\-\s]{6,20}$/),
+  contact_email: Joi.string().email(),
+  latitude: Joi.number().min(-90).max(90),
+  longitude: Joi.number().min(-180).max(180),
+  address_line: Joi.string(),
+  city: Joi.string(),
+  state: Joi.string(),
+  pincode: Joi.string().pattern(/^[0-9]{5,10}$/),
+  bhk: Joi.number().integer().min(1).max(10),
 }).min(1);
 
 const searchQuerySchema = Joi.object({
@@ -74,6 +117,11 @@ const searchQuerySchema = Joi.object({
   furnishing: Joi.string().valid(...FURNISHING_TYPES).optional(),
   // 'true' (default) keeps recently-sold (≤2 days) in search; 'false' hides them.
   includeSold: Joi.string().valid('true', 'false').optional(),
+  // 'true' restricts results to quick-post entries; 'false' or omitted returns
+  // the full marketplace including quick posts.
+  isQuickPost: Joi.string().valid('true', 'false').optional(),
+  // Admin-only filter; ignored in regular search.
+  verified: Joi.string().valid('true', 'false').optional(),
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(20),
 });
@@ -82,9 +130,12 @@ router.get('/', optionalAuth, validate(searchQuerySchema, 'query'), PropertiesCo
 router.get('/my', authenticate, PropertiesController.getMyListings);
 router.get('/:id', optionalAuth, PropertiesController.getById);
 router.post('/', authenticate, validate(createPropertySchema), PropertiesController.create);
+router.post('/quick', authenticate, validate(quickPostSchema), PropertiesController.quickCreate);
 router.patch('/:id', authenticate, validate(updatePropertySchema), PropertiesController.update);
 // Owner/admin can mark a property as SOLD OUT — visible for 2 days, then hidden.
 router.post('/:id/mark-sold', authenticate, PropertiesController.markSold);
+// Admin-only — flip the verified flag (CR §1.4 / Admin Dashboard §2)
+router.post('/:id/verify', authenticate, requireRole('admin'), validate(verifySchema), PropertiesController.setVerified);
 router.delete('/:id', authenticate, PropertiesController.remove);
 
 module.exports = router;

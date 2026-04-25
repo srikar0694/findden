@@ -28,6 +28,11 @@ const PropertyModel = {
       status,                         // string | string[]
       includeRecentlySold = true,     // show sold properties for 2 days
       soldVisibilityDays = 2,
+      isQuickPost,                    // boolean | undefined — filter quick posts
+      verified,                       // boolean | undefined — admin filter
+      ownerName,                      // string | undefined — admin filter
+      ownerPhone,                     // string | undefined — admin filter
+      ownerEmail,                     // string | undefined — admin filter
     } = filters;
 
     const soldCutoff = Date.now() - soldVisibilityDays * 24 * 60 * 60 * 1000;
@@ -58,6 +63,15 @@ const PropertyModel = {
       if (maxPrice != null && p.price > Number(maxPrice)) return false;
       if (bedrooms != null && (p.bedrooms == null || p.bedrooms < Number(bedrooms))) return false;
       if (furnishing && p.furnishing !== furnishing) return false;
+      if (isQuickPost === true && !p.is_quick_post) return false;
+      if (isQuickPost === false && p.is_quick_post) return false;
+      if (verified === true && !p.verified) return false;
+      if (verified === false && p.verified) return false;
+
+      // Owner-side filters (admin dashboard) require a join with users.
+      // Implemented in service layer for clarity; model just accepts a
+      // pre-resolved list of allowed owner_ids.
+      if (filters._allowedOwnerIds && !filters._allowedOwnerIds.includes(p.owner_id)) return false;
 
       return true;
     });

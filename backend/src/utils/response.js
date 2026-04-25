@@ -11,9 +11,12 @@ const success = (res, data, meta = null, statusCode = 200) => {
 
 const created = (res, data) => success(res, data, null, 201);
 
-const error = (res, message, code = 'ERROR', statusCode = 400, details = null) => {
+const error = (res, message, code = 'ERROR', statusCode = 400, details = null, extras = null) => {
   const payload = { success: false, error: { code, message } };
   if (details) payload.error.details = details;
+  if (extras && typeof extras === 'object') {
+    Object.assign(payload.error, extras);
+  }
   return res.status(statusCode).json(payload);
 };
 

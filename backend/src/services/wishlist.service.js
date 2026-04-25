@@ -29,7 +29,10 @@ const WishlistService = {
             bathrooms: prop.bathrooms,
             areaSqft: prop.area_sqft,
             thumbnail: (prop.images && prop.images[0]) || null,
+            images: prop.images || [],
             status: prop.status,
+            verified: !!prop.verified,
+            isQuickPost: !!prop.is_quick_post,
           },
         };
       })

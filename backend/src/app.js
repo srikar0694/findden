@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
@@ -10,8 +11,9 @@ const logger = require('./utils/logger');
 
 const app = express();
 
-// Security headers
-app.use(helmet());
+// Security headers — relax cross-origin so the React dev server can load
+// uploaded images served from this same backend.
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
 // CORS
 app.use(
@@ -24,9 +26,12 @@ app.use(
   })
 );
 
-// Body parser
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+// Body parser — generous limit so base64-encoded image uploads fit.
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Static — uploaded property images
+app.use('/uploads', express.static(path.join(__dirname, '..', 'db', 'uploads')));
 
 // HTTP logging
 app.use(morgan('dev', { stream: { write: (msg) => logger.http(msg.trim()) } }));

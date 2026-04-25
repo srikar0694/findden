@@ -1,9 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { dashboardService } from '../services/dashboard.service';
+import { messagesService } from '../services/messages.service';
 import { formatCurrency, formatRent } from '../utils/formatCurrency';
 import { formatDate, timeAgo } from '../utils/formatDate';
 import Spinner from '../components/shared/Spinner';
+import { resolveImageUrl } from '../components/property/ImageUploader';
+import MessageOwnerButton from '../components/property/MessageOwnerButton';
+import { useWishlistStore } from '../store/wishlistStore';
 
 const STATUS_COLORS = {
   active: 'bg-green-100 text-green-700',
@@ -54,12 +58,12 @@ export default function DashboardPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-gray-200 mb-6">
-        {['overview', 'listings', 'transactions'].map((tab) => (
+      <div className="flex gap-1 border-b border-gray-200 mb-6 overflow-x-auto">
+        {['overview', 'listings', 'favorites', 'contacted', 'transactions'].map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 text-sm font-medium capitalize transition-colors border-b-2 -mb-px ${
+            className={`px-4 py-2 text-sm font-medium capitalize transition-colors border-b-2 -mb-px whitespace-nowrap ${
               activeTab === tab
                 ? 'border-blue-600 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -158,6 +162,14 @@ export default function DashboardPage() {
         <ListingsTab />
       )}
 
+      {activeTab === 'favorites' && (
+        <FavoritesTab />
+      )}
+
+      {activeTab === 'contacted' && (
+        <ContactedTab />
+      )}
+
       {activeTab === 'transactions' && (
         <div>
           <h2 className="text-lg font-semibold text-gray-900 mb-3">Transaction History</h2>
@@ -236,11 +248,14 @@ function ListingsTab() {
       {listings.map((l) => (
         <div key={l.id} className="flex items-center gap-4 p-4 bg-white border border-gray-200 rounded-xl">
           {l.thumbnail && (
-            <img src={l.thumbnail} alt="" className="w-16 h-16 rounded-lg object-cover flex-shrink-0" />
+            <img src={resolveImageUrl(l.thumbnail)} alt="" className="w-16 h-16 rounded-lg object-cover flex-shrink-0" />
           )}
           <div className="flex-1 min-w-0">
             <Link to={`/property/${l.id}`} className="font-semibold text-sm text-gray-900 hover:text-blue-600 truncate block">
               {l.title}
+              {l.verified && (
+                <span title="Verified" className="ml-1 inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-blue-600 text-white text-[9px] font-bold align-middle">✓</span>
+              )}
             </Link>
             <p className="text-xs text-gray-500 mt-0.5">{l.city}, {l.state}</p>
             <p className="text-sm font-bold text-blue-700 mt-1">
@@ -255,6 +270,193 @@ function ListingsTab() {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * FavoritesTab — CR §4.1: shows the buyer's wishlist (favorites).
+ */
+function FavoritesTab() {
+  const fetch = useWishlistStore((s) => s.fetch);
+  const items = useWishlistStore((s) => s.items);
+  const ids = useWishlistStore((s) => s.ids);
+  const toggle = useWishlistStore((s) => s.toggle);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.resolve(fetch()).finally(() => setLoading(false));
+  }, [fetch]);
+
+  if (loading) return <Spinner className="py-8" />;
+  const list = items && items.length ? items : [];
+  if (list.length === 0) {
+    return (
+      <div className="text-center py-12 text-gray-400">
+        <p className="text-4xl mb-3">♡</p>
+        <p className="font-medium">No favorites yet</p>
+        <Link to="/search" className="text-blue-600 text-sm underline mt-2 inline-block">
+          Browse properties
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex justify-between items-end mb-3">
+        <h2 className="text-lg font-semibold text-gray-900">Your favorites ({list.length})</h2>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {list.map((w) => {
+          const p = w.property || {};
+          const pid = w.propertyId;
+          return (
+            <div key={w.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden flex flex-col">
+              <Link to={`/property/${pid}`} className="block relative">
+                <img
+                  src={resolveImageUrl(p.thumbnail || p.images?.[0])}
+                  alt={p.title}
+                  className="w-full h-36 object-cover bg-gray-100"
+                  onError={(e) => { e.target.src = 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=400'; }}
+                />
+                {p.verified && (
+                  <span className="absolute top-2 left-2 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-600 text-white shadow">
+                    ✓ Verified
+                  </span>
+                )}
+                {p.isQuickPost && (
+                  <span className="absolute top-2 right-2 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500 text-white shadow">
+                    ⚡ Quick
+                  </span>
+                )}
+              </Link>
+              <div className="p-3 flex-1 flex flex-col">
+                <Link to={`/property/${pid}`} className="font-semibold text-sm text-gray-900 hover:text-blue-600 line-clamp-2">
+                  {p.title}
+                </Link>
+                <p className="text-xs text-gray-500 mt-0.5 truncate">📍 {p.city}, {p.state}</p>
+                <p className="text-sm font-bold text-blue-700 mt-1">
+                  {p.listingType === 'rent' ? formatRent(p.price) : formatCurrency(p.price)}
+                </p>
+                <div className="grid grid-cols-2 gap-2 mt-auto pt-3">
+                  <button
+                    onClick={() => toggle(pid)}
+                    className={`text-xs py-1.5 rounded-lg font-medium transition-colors ${
+                      ids.has(pid)
+                        ? 'bg-rose-50 text-rose-600 hover:bg-rose-100'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    {ids.has(pid) ? '♥ Remove' : '♡ Add back'}
+                  </button>
+                  <MessageOwnerButton
+                    propertyId={pid}
+                    propertyTitle={p.title}
+                    className="text-xs py-1.5 rounded-lg font-medium border border-blue-600 text-blue-600 hover:bg-blue-50 transition-colors"
+                  />
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * ContactedTab — CR §4.2: lists every property the buyer has messaged.
+ */
+function ContactedTab() {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [quota, setQuota] = useState(null);
+
+  useEffect(() => {
+    Promise.all([
+      messagesService.contacted().then((res) => setItems(res?.data || [])).catch(() => setItems([])),
+      messagesService.getQuota().then((res) => setQuota(res?.data || null)).catch(() => setQuota(null)),
+    ]).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <Spinner className="py-8" />;
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-end justify-between gap-3 mb-3">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Properties you've contacted</h2>
+          {quota && (
+            <p className="text-xs text-gray-500 mt-0.5">
+              Messages this month:{' '}
+              <span className="font-semibold text-gray-700">
+                {quota.used}/{quota.limit}
+              </span>{' '}
+              ({quota.remaining} remaining)
+              {quota.plan && quota.plan !== 'free' && (
+                <span className="ml-2 px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full font-medium">
+                  {quota.plan}
+                </span>
+              )}
+            </p>
+          )}
+        </div>
+        {quota && quota.remaining <= 0 && (
+          <Link
+            to="/pricing"
+            className="text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg transition-colors"
+          >
+            Upgrade for more →
+          </Link>
+        )}
+      </div>
+
+      {items.length === 0 ? (
+        <div className="text-center py-12 text-gray-400">
+          <p className="text-4xl mb-3">💬</p>
+          <p className="font-medium">No messages sent yet</p>
+          <Link to="/search" className="text-blue-600 text-sm underline mt-2 inline-block">
+            Find a property to contact
+          </Link>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {items.map((p) => (
+            <div key={p.id} className="flex items-center gap-4 p-4 bg-white border border-gray-200 rounded-xl">
+              <img
+                src={resolveImageUrl(p.thumbnail || p.images?.[0])}
+                alt=""
+                className="w-16 h-16 rounded-lg object-cover flex-shrink-0 bg-gray-100"
+                onError={(e) => { e.target.src = 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=400'; }}
+              />
+              <div className="flex-1 min-w-0">
+                <Link
+                  to={`/property/${p.id}`}
+                  className="font-semibold text-sm text-gray-900 hover:text-blue-600 truncate block"
+                >
+                  {p.title}
+                  {p.verified && (
+                    <span title="Verified" className="ml-1 inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-blue-600 text-white text-[9px] font-bold align-middle">✓</span>
+                  )}
+                </Link>
+                <p className="text-xs text-gray-500 mt-0.5">{p.city}, {p.state}</p>
+                {p.lastContactedAt && (
+                  <p className="text-[11px] text-gray-400 mt-0.5">
+                    Last contacted {timeAgo(p.lastContactedAt)}
+                  </p>
+                )}
+                <p className="text-sm font-bold text-blue-700 mt-1">
+                  {p.listingType === 'rent' ? formatRent(p.price) : formatCurrency(p.price)}
+                </p>
+              </div>
+              <div className="flex-shrink-0">
+                <MessageOwnerButton propertyId={p.id} propertyTitle={p.title} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
