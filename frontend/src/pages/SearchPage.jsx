@@ -43,6 +43,7 @@ export default function SearchPage() {
       Object.entries(initial).filter(([, v]) => v != null)
     );
     if (Object.keys(cleaned).length) setFilters(cleaned);
+   console.log("page refresh",cleaned);
     fetchProperties(cleaned);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

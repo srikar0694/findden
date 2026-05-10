@@ -9,7 +9,6 @@ import { formatDate, timeAgo } from '../utils/formatDate';
 import Spinner from '../components/shared/Spinner';
 import { useAuthStore } from '../store/authStore';
 import { useWishlistStore } from '../store/wishlistStore';
-import { runCheckout } from '../services/razorpay';
 import { resolveImageUrl } from '../components/property/ImageUploader';
 
 const TYPE_LABELS = {
@@ -123,15 +122,11 @@ export default function PropertyDetailPage() {
       flash('success', 'Contact unlocked!');
       await refresh();
     } catch (err) {
-      // 402 => no subscription / no slots. Send through Razorpay single purchase.
-      if (err.status === 402 || err.code === 'PAYMENT_REQUIRED') {
-        try {
-          await runCheckout({ planSlug: 'single', propertyIds: [id], user });
-          flash('success', 'Payment successful — contact unlocked.');
-          await refresh();
-        } catch (e2) {
-          if (e2.code !== 'CANCELLED') flash('error', e2.message || 'Payment failed');
-        }
+      // CR §1.1 — no active subscription / quota exhausted ⇒ send the user
+      // straight to the pricing page rather than launching a one-off Razorpay flow.
+      if (err.status === 402 || err.code === 'PAYMENT_REQUIRED' || err.code === 'QUOTA_EXCEEDED') {
+        flash('error', 'You need an active plan to unlock contacts. Redirecting to pricing…');
+        setTimeout(() => navigate('/pricing?from=unlock'), 700);
       } else {
         flash('error', err.message || 'Could not unlock contact');
       }

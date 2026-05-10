@@ -11,9 +11,9 @@ const PropertiesController = {
     }
   },
 
-  getById(req, res, next) {
+  async getById(req, res, next) {
     try {
-      const property = PropertiesService.getById(req.params.id, req.user?.id || null);
+      const property = await PropertiesService.getById(req.params.id, req.user?.id || null);
       if (!property) return notFound(res, 'Property not found');
       return success(res, property);
     } catch (err) {
@@ -23,7 +23,6 @@ const PropertiesController = {
 
   async create(req, res, next) {
     try {
-      // Posting is free — no payment gate.
       const property = await PropertiesService.create(req.user.id, req.body);
       return created(res, property);
     } catch (err) {
@@ -33,12 +32,7 @@ const PropertiesController = {
 
   async update(req, res, next) {
     try {
-      const property = await PropertiesService.update(
-        req.params.id,
-        req.user.id,
-        req.user.role,
-        req.body
-      );
+      const property = await PropertiesService.update(req.params.id, req.user.id, req.user.role, req.body);
       if (!property) return notFound(res, 'Property not found');
       return success(res, property);
     } catch (err) {
@@ -58,9 +52,9 @@ const PropertiesController = {
     }
   },
 
-  getMyListings(req, res, next) {
+  async getMyListings(req, res, next) {
     try {
-      const result = PropertiesService.getMyListings(req.user.id, req.query);
+      const result = await PropertiesService.getMyListings(req.user.id, req.query);
       return success(res, result.data, result.meta);
     } catch (err) {
       return next(err);
@@ -69,11 +63,7 @@ const PropertiesController = {
 
   async markSold(req, res, next) {
     try {
-      const property = await PropertiesService.markSold(
-        req.params.id,
-        req.user.id,
-        req.user.role
-      );
+      const property = await PropertiesService.markSold(req.params.id, req.user.id, req.user.role);
       if (!property) return notFound(res, 'Property not found');
       return success(res, property);
     } catch (err) {
@@ -93,11 +83,7 @@ const PropertiesController = {
 
   async setVerified(req, res, next) {
     try {
-      const property = await PropertiesService.setVerified(
-        req.params.id,
-        req.user.id,
-        req.body.verified !== false,
-      );
+      const property = await PropertiesService.setVerified(req.params.id, req.user.id, req.body.verified !== false);
       if (!property) return notFound(res, 'Property not found');
       return success(res, property);
     } catch (err) {

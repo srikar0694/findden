@@ -3,13 +3,10 @@ const PricingService = require('../services/pricing.service');
 const { success, error, notFound } = require('../utils/response');
 
 const ContactsController = {
-  /** GET /contacts/preview/:propertyId — lightweight "can I unlock?" check */
-  preview(req, res, next) {
+  async preview(req, res, next) {
     try {
-      const result = ContactsService.getContactForProperty(
-        req.user.id,
-        req.params.propertyId,
-        { consumeQuota: false }
+      const result = await ContactsService.getContactForProperty(
+        req.user.id, req.params.propertyId, { consumeQuota: false }
       );
       return success(res, result);
     } catch (err) {
@@ -18,18 +15,10 @@ const ContactsController = {
     }
   },
 
-  /**
-   * POST /contacts/unlock/:propertyId
-   * - If the caller has subscription quota, deduct it and return the contact.
-   * - If already unlocked, return the contact idempotently.
-   * - Otherwise return 402 with a hint to go to Pricing.
-   */
-  unlock(req, res, next) {
+  async unlock(req, res, next) {
     try {
-      const result = ContactsService.getContactForProperty(
-        req.user.id,
-        req.params.propertyId,
-        { consumeQuota: true }
+      const result = await ContactsService.getContactForProperty(
+        req.user.id, req.params.propertyId, { consumeQuota: true }
       );
       if (result.status === 'payment_required') {
         return error(res, result.reason, 'PAYMENT_REQUIRED', 402);
@@ -44,31 +33,28 @@ const ContactsController = {
     }
   },
 
-  /** POST /contacts/unlock-many  { propertyIds: [...] } */
-  unlockMany(req, res, next) {
+  async unlockMany(req, res, next) {
     try {
       const { propertyIds = [] } = req.body;
-      const result = ContactsService.unlockMany(req.user.id, propertyIds);
+      const result = await ContactsService.unlockMany(req.user.id, propertyIds);
       return success(res, result);
     } catch (err) {
       return next(err);
     }
   },
 
-  /** GET /contacts/mine — list all properties whose contact I've unlocked */
-  listMine(req, res, next) {
+  async listMine(req, res, next) {
     try {
-      const data = ContactsService.listMyUnlocks(req.user.id);
+      const data = await ContactsService.listMyUnlocks(req.user.id);
       return success(res, data);
     } catch (err) {
       return next(err);
     }
   },
 
-  /** GET /contacts/entitlement — subscription snapshot for badges / paywall */
-  entitlement(req, res, next) {
+  async entitlement(req, res, next) {
     try {
-      const ent = PricingService.getEntitlement(req.user.id);
+      const ent = await PricingService.getEntitlement(req.user.id);
       return success(res, ent);
     } catch (err) {
       return next(err);

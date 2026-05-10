@@ -20,12 +20,11 @@ const PaymentsController = {
       return success(res, result);
     } catch (err) {
       if (err.code === 'PAYMENT_FAILED') return error(res, err.message, 'PAYMENT_FAILED', 402);
-      if (err.code === 'NOT_FOUND')      return error(res, err.message, 'NOT_FOUND', 404);
+      if (err.code === 'NOT_FOUND') return error(res, err.message, 'NOT_FOUND', 404);
       return next(err);
     }
   },
 
-  /** Sandbox-only HMAC signer — see payments.routes.js comment. */
   sandboxSign(req, res, next) {
     try {
       if (RazorpayGateway.isLive()) {
@@ -38,9 +37,9 @@ const PaymentsController = {
     }
   },
 
-  getHistory(req, res, next) {
+  async getHistory(req, res, next) {
     try {
-      const result = PaymentsService.getHistory(req.user.id, req.query);
+      const result = await PaymentsService.getHistory(req.user.id, req.query);
       return success(res, result.data, result.meta);
     } catch (err) {
       return next(err);

@@ -5,9 +5,7 @@ const NotificationsController = {
   async requestCallback(req, res, next) {
     try {
       const result = await NotificationsService.notifyOwner({
-        senderId: req.user.id,
-        propertyId: req.params.propertyId,
-        type: 'request_callback',
+        senderId: req.user.id, propertyId: req.params.propertyId, type: 'request_callback',
       });
       return created(res, result);
     } catch (err) {
@@ -20,10 +18,8 @@ const NotificationsController = {
   async sendMessage(req, res, next) {
     try {
       const result = await NotificationsService.notifyOwner({
-        senderId: req.user.id,
-        propertyId: req.params.propertyId,
-        type: 'send_message',
-        message: req.body.message,
+        senderId: req.user.id, propertyId: req.params.propertyId,
+        type: 'send_message', message: req.body.message,
       });
       return created(res, result);
     } catch (err) {
@@ -33,10 +29,9 @@ const NotificationsController = {
     }
   },
 
-  /** Owner-side feed of notifications they've received. */
-  inbox(req, res, next) {
+  async inbox(req, res, next) {
     try {
-      return success(res, NotificationsService.listForOwner(req.user.id));
+      return success(res, await NotificationsService.listForOwner(req.user.id));
     } catch (err) {
       return next(err);
     }

@@ -1,13 +1,3 @@
-/**
- * Messages Service
- * --------------------------------------------------------------
- * Buyer-side messaging to property owners. Quota-gated:
- *   - Free tier: 3 messages per rolling 30-day window
- *   - Paid plans: use plan.message_quota (defaults to plan.quota when unset)
- * On quota-exhaustion the controller responds with 402 PAYMENT_REQUIRED so
- * the UI can redirect to /pricing (CR §UserDashboard.3).
- */
-
 const { v4: uuidv4 } = require('uuid');
 const MessageModel = require('../models/message.model');
 const PropertyModel = require('../models/property.model');
@@ -16,23 +6,20 @@ const PricingService = require('./pricing.service');
 const FREE_TIER_QUOTA = 3;
 const WINDOW_DAYS = 30;
 
-function quotaForUser(userId) {
-  const ent = PricingService.getEntitlement(userId);
+async function quotaForUser(userId) {
+  const ent = await PricingService.getEntitlement(userId);
   if (!ent || !ent.hasSubscription) return FREE_TIER_QUOTA;
   const plan = ent.plan;
   if (!plan) return FREE_TIER_QUOTA;
-  // Plans don't currently expose a separate message quota — reuse the
-  // contact unlock quota as a proxy until a dedicated field is added.
   return plan.message_quota || plan.unlock_quota || plan.quota || FREE_TIER_QUOTA;
 }
 
 const MessagesService = {
-  /** Get the user's message quota status for the rolling window. */
-  getQuotaStatus(userId) {
-    const total = quotaForUser(userId);
+  async getQuotaStatus(userId) {
+    const total = await quotaForUser(userId);
     const since = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
-    const used = MessageModel.countSentInWindow(userId, since);
-    const ent = PricingService.getEntitlement(userId);
+    const used = await MessageModel.countSentInWindow(userId, since);
+    const ent = await PricingService.getEntitlement(userId);
     const planName = ent && ent.hasSubscription && ent.plan
       ? (ent.plan.name || ent.plan.slug || null)
       : 'free';
@@ -45,9 +32,8 @@ const MessagesService = {
     };
   },
 
-  /** Send a message to the owner of a property. */
   async send(senderId, propertyId, body, senderInfo = {}) {
-    const property = PropertyModel.findById(propertyId);
+    const property = await PropertyModel.findById(propertyId);
     if (!property) {
       throw Object.assign(new Error('Property not found'), { code: 'NOT_FOUND', statusCode: 404 });
     }
@@ -56,7 +42,7 @@ const MessagesService = {
         { code: 'BAD_REQUEST', statusCode: 400 });
     }
 
-    const quota = MessagesService.getQuotaStatus(senderId);
+    const quota = await MessagesService.getQuotaStatus(senderId);
     if (quota.remaining <= 0) {
       throw Object.assign(
         new Error(`Message limit reached (${quota.used}/${quota.total} in last ${quota.windowDays} days)`),
@@ -64,7 +50,7 @@ const MessagesService = {
       );
     }
 
-    const message = MessageModel.create({
+    const message = await MessageModel.create({
       id: uuidv4(),
       sender_id: senderId,
       sender_name: senderInfo.name || null,
@@ -78,18 +64,19 @@ const MessagesService = {
 
     return {
       message,
-      quota: MessagesService.getQuotaStatus(senderId),
+      quota: await MessagesService.getQuotaStatus(senderId),
     };
   },
 
-  /** List properties the buyer has contacted (for the dashboard). */
-  contactedProperties(userId) {
-    return MessageModel.contactedSummary(userId)
-      .map(({ propertyId, lastContactedAt }) => {
-        const prop = PropertyModel.findById(propertyId);
+  async contactedProperties(userId) {
+    const summary = await MessageModel.contactedSummary(userId);
+    const results = await Promise.all(
+      summary.map(async ({ propertyId, lastContactedAt }) => {
+        const prop = await PropertyModel.findById(propertyId);
         return prop ? { property: prop, lastContactedAt } : null;
       })
-      .filter(Boolean);
+    );
+    return results.filter(Boolean);
   },
 };
 

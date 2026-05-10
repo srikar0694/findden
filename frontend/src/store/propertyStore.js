@@ -18,6 +18,7 @@ export const usePropertyStore = create((set, get) => ({
     set({ loading: true, error: null });
     try {
       const res = await propertiesService.search({ ...get().activeFilters, ...params });
+      console.log("res",res);
       set({
         properties: res.data,
         total: res.meta?.total || 0,
