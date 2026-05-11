@@ -43,7 +43,14 @@ export default function PropertyCard({ property, isSelected, onClick }) {
       navigate('/login');
       return;
     }
-    await toggleWishlist(id);
+    try {
+      const result = await toggleWishlist(id);
+      if (result?.success === false) {
+        console.error('Wishlist toggle failed:', result.error);
+      }
+    } catch (err) {
+      console.error('Error toggling wishlist:', err);
+    }
   };
 
   return (

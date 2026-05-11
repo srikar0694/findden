@@ -1,45 +1,55 @@
-/**
- * Wishlist — a saved list of properties per user.
- *
- * Row shape: { id, user_id, property_id, notes, added_at }
- *
- * Unique key: (user_id, property_id)
- *
- * The wishlist is free (viewing a property's public details is always free).
- * From the wishlist, a user can select one or many properties and route them
- * into the unlock flow (single-payment OR consume-subscription-quota).
- */
-
-const db = require('../config/database');
-
-const TABLE = 'wishlists';
+const { query } = require('../config/database');
 
 const WishlistModel = {
-  findByUserId: (userId) =>
-    db.findWhere(TABLE, (w) => w.user_id === userId)
-      .sort((a, b) => new Date(b.added_at) - new Date(a.added_at)),
-
-  findByUserAndProperty: (userId, propertyId) =>
-    db.findOne(TABLE, (w) => w.user_id === userId && w.property_id === propertyId),
-
-  countByUser: (userId) => db.count(TABLE, (w) => w.user_id === userId),
-
-  add: ({ id, user_id, property_id, notes = null }) => {
-    const existing = WishlistModel.findByUserAndProperty(user_id, property_id);
-    if (existing) return existing;
-    return db.insert(TABLE, {
-      id,
-      user_id,
-      property_id,
-      notes,
-      added_at: new Date().toISOString(),
-    });
+  async findByUserId(userId) {
+    const { rows } = await query(
+      `SELECT * FROM wishlists WHERE user_id = $1 ORDER BY added_at DESC`,
+      [userId]
+    );
+    return rows;
   },
 
-  remove: (userId, propertyId) =>
-    db.deleteWhere(TABLE, (w) => w.user_id === userId && w.property_id === propertyId),
+  async findByUserAndProperty(userId, propertyId) {
+    const { rows } = await query(
+      `SELECT * FROM wishlists WHERE user_id = $1 AND property_id = $2`,
+      [userId, propertyId]
+    );
+    return rows[0] || null;
+  },
 
-  removeById: (id) => db.deleteById(TABLE, id),
+  async countByUser(userId) {
+    const { rows } = await query(
+      `SELECT COUNT(*)::int AS n FROM wishlists WHERE user_id = $1`,
+      [userId]
+    );
+    return rows[0].n;
+  },
+
+  /** Idempotent — returns existing row if already wishlisted. */
+  async add({ id, user_id, property_id, notes = null }) {
+    const { rows } = await query(
+      `INSERT INTO wishlists (id, user_id, property_id, notes)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (user_id, property_id) DO UPDATE
+         SET added_at = wishlists.added_at
+       RETURNING *`,
+      [id, user_id, property_id, notes]
+    );
+    return rows[0];
+  },
+
+  async remove(userId, propertyId) {
+    const { rowCount } = await query(
+      `DELETE FROM wishlists WHERE user_id = $1 AND property_id = $2`,
+      [userId, propertyId]
+    );
+    return rowCount;
+  },
+
+  async removeById(id) {
+    const { rowCount } = await query(`DELETE FROM wishlists WHERE id = $1`, [id]);
+    return rowCount > 0;
+  },
 };
 
 module.exports = WishlistModel;

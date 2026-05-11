@@ -1,27 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import { propertiesService } from '../services/properties.service';
 import { useAuthStore } from '../store/authStore';
 import LocationPicker from '../components/map/LocationPicker';
+import PropertyPreview from '../components/property/PropertyPreview';
 import Spinner from '../components/shared/Spinner';
+import { listCountries, listStates, listCities, reconcileLocation } from '../utils/locations';
 
 /**
- * QuickPostPage
- * -------------
- * Implements CR §2 (Quick Property Post).
- *
- * Field order (per the change request):
- *   1. Owner Name           — pre-populated from profile, editable
- *   2. Location pin (map)   — current-location prompt, draggable marker
- *   3. Phone                — mandatory; pre-populated, editable
- *   4. Price                — mandatory
- *   5. Property Type        — apartment / house / villa / plot / commercial / pg
- *   6. BHK                  — only when property type is "house" (or apartment / villa)
- *
- * Submits to POST /properties/quick which sets `is_quick_post = true` so the
- * property can be filtered into the dedicated Quick listings view.
+ * QuickPostPage (CR §2 / Quick Post)
+ * -----------------------------------
+ * - Map defaults to current location; "use my location" / "confirm
+ *   location" buttons removed.
+ * - Live preview shown alongside the form.
+ * - Address, country, state, city are populated from the geocoded pin
+ *   (country/state/city as cascading dropdowns).
+ * - Toast popup for success / error; success ⇒ redirect to /search.
  */
-
 const PROPERTY_TYPES = ['apartment', 'house', 'villa', 'plot', 'commercial', 'pg'];
 const BHK_REQUIRED_TYPES = ['apartment', 'house', 'villa'];
 const BHK_OPTIONS = [1, 2, 3, 4, 5, 6];
@@ -31,7 +27,13 @@ export default function QuickPostPage() {
   const { user, token } = useAuthStore();
 
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
+  const [toast, setToast] = useState(null); // { type, text }
+
+  const flash = (type, text, ms = 3500) => {
+    setToast({ type, text });
+    setTimeout(() => setToast(null), ms);
+  };
+
   const [form, setForm] = useState({
     owner_name: '',
     contact_phone: '',
@@ -43,6 +45,7 @@ export default function QuickPostPage() {
     latitude: '',
     longitude: '',
     address_line: '',
+    country: 'India',
     city: '',
     state: '',
     pincode: '',
@@ -51,7 +54,6 @@ export default function QuickPostPage() {
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
   const setMany = (patch) => setForm((f) => ({ ...f, ...patch }));
 
-  // Pre-populate from profile on mount (CR §2.4 + §2.2 + §2.3).
   useEffect(() => {
     if (!user) return;
     setForm((f) => ({
@@ -64,22 +66,40 @@ export default function QuickPostPage() {
 
   const requiresBhk = BHK_REQUIRED_TYPES.includes(form.property_type);
 
+  const countryOptions = useMemo(() => listCountries(), []);
+  const stateOptions   = useMemo(() => listStates(form.country), [form.country]);
+  const cityOptions    = useMemo(() => listCities(form.country, form.state), [form.country, form.state]);
+
+  const handleLocationChange = (v) => {
+    const r = reconcileLocation({
+      country: v.country ?? form.country,
+      state:   v.state   ?? form.state,
+      city:    v.city    ?? form.city,
+    });
+    setMany({
+      latitude:     v.latitude     ?? form.latitude,
+      longitude:    v.longitude    ?? form.longitude,
+      address_line: v.address_line ?? form.address_line,
+      pincode:      v.pincode      ?? form.pincode,
+      country: r.country,
+      state:   r.state,
+      city:    r.city,
+    });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!token) {
       navigate('/login');
       return;
     }
-    setError('');
-
-    // Hard guards (the form already enforces these via `required`, but be safe).
-    if (!form.owner_name.trim())     return setError('Owner name is required.');
-    if (!form.contact_phone.trim())  return setError('Phone is required for a quick post.');
+    if (!form.owner_name.trim())     return flash('error', 'Owner name is required.');
+    if (!form.contact_phone.trim())  return flash('error', 'Phone is required for a quick post.');
     if (!form.latitude || !form.longitude) {
-      return setError('Please drop a pin on the map for your property.');
+      return flash('error', 'Please drop a pin on the map for your property.');
     }
-    if (!form.price)                 return setError('Price is required.');
-    if (requiresBhk && !form.bhk)    return setError('BHK is required for this property type.');
+    if (!form.price)                 return flash('error', 'Price is required.');
+    if (requiresBhk && !form.bhk)    return flash('error', 'BHK is required for this property type.');
 
     setSubmitting(true);
     try {
@@ -93,19 +113,21 @@ export default function QuickPostPage() {
         latitude: parseFloat(form.latitude),
         longitude: parseFloat(form.longitude),
         address_line: form.address_line || undefined,
+        country: form.country || 'India',
         city: form.city || undefined,
         state: form.state || undefined,
         pincode: form.pincode || undefined,
         bhk: requiresBhk && form.bhk ? parseInt(form.bhk, 10) : undefined,
       };
-      const res = await propertiesService.quickCreate(payload);
-      const newId = res?.data?.id;
-      navigate(newId ? `/property/${newId}` : '/search?quick=1');
+      await propertiesService.quickCreate(payload);
+      flash('success', 'Quick post created — redirecting to search…', 1500);
+      setTimeout(() => navigate('/search?quick=1'), 1100);
     } catch (err) {
       if (err.code === 'PAYMENT_REQUIRED') {
-        setError('You need an active subscription or pay-per-listing to post. Please visit Pricing.');
+        flash('error', 'You need an active subscription to post. Redirecting to pricing…');
+        setTimeout(() => navigate('/pricing?from=post'), 1200);
       } else {
-        setError(err.message || 'Could not post property. Please try again.');
+        flash('error', err.message || 'Could not post property. Please try again.');
       }
     } finally {
       setSubmitting(false);
@@ -116,13 +138,30 @@ export default function QuickPostPage() {
     latitude: form.latitude,
     longitude: form.longitude,
     address_line: form.address_line,
+    country: form.country,
     city: form.city,
     state: form.state,
     pincode: form.pincode,
   };
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-10">
+    <div className="max-w-6xl mx-auto px-4 py-10">
+      {/* Toast (success / error popup) */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ y: -16, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -16, opacity: 0 }}
+            className={`fixed top-20 right-6 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${
+              toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
+            }`}
+          >
+            {toast.text}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="flex items-center gap-2 mb-2">
         <span className="text-2xl">⚡</span>
         <h1 className="text-2xl font-bold text-gray-900">Quick Property Post</h1>
@@ -131,181 +170,214 @@ export default function QuickPostPage() {
         Just the essentials — you can complete the rest later.
       </p>
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 mb-6 text-sm text-red-700">
-          {error}
-          {error.includes('subscription') && (
-            <button
-              type="button"
-              onClick={() => navigate('/pricing')}
-              className="ml-2 text-blue-600 underline"
-            >
-              View Plans
-            </button>
-          )}
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} className="space-y-5">
-        {/* 1. Owner Name */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Owner Name *</label>
-          <input
-            type="text"
-            value={form.owner_name}
-            onChange={(e) => set('owner_name', e.target.value)}
-            placeholder="Full name"
-            required
-            className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <p className="mt-1 text-[11px] text-gray-400">
-            Pre-filled from your profile · editable
-          </p>
-        </div>
-
-        {/* 2. Location pin */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Location Pin *</label>
-          <p className="text-xs text-gray-500 mb-2">
-            Allow location access to drop the pin automatically, then drag to refine.
-          </p>
-          <LocationPicker
-            value={locationValue}
-            onChange={(v) =>
-              setMany({
-                latitude:     v.latitude     ?? form.latitude,
-                longitude:    v.longitude    ?? form.longitude,
-                address_line: v.address_line ?? form.address_line,
-                city:         v.city         ?? form.city,
-                state:        v.state        ?? form.state,
-                pincode:      v.pincode      ?? form.pincode,
-              })
-            }
-          />
-        </div>
-
-        {/* 3. Phone (mandatory) */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Phone *</label>
-          <input
-            type="tel"
-            value={form.contact_phone}
-            onChange={(e) => set('contact_phone', e.target.value)}
-            placeholder="9876543210"
-            required
-            pattern="[0-9+\-\s]{7,20}"
-            className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          {!user?.phone && (
-            <p className="mt-1 text-[11px] text-amber-600">
-              We need a phone number for buyers to reach you. We'll save this to your profile.
-            </p>
-          )}
-        </div>
-
-        {/* 4. Price */}
-        <div className="grid grid-cols-3 gap-3">
-          <div className="col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Price ({form.listing_type === 'rent' ? '₹/month' : '₹ total'}) *
-            </label>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* LEFT — form */}
+        <form onSubmit={handleSubmit} className="lg:col-span-2 space-y-5">
+          {/* 1. Owner Name */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Owner Name *</label>
             <input
-              type="number"
-              value={form.price}
-              onChange={(e) => set('price', e.target.value)}
-              placeholder="e.g. 28000"
+              type="text"
+              value={form.owner_name}
+              onChange={(e) => set('owner_name', e.target.value)}
+              placeholder="Full name"
               required
-              min={0}
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="mt-1 text-[11px] text-gray-400">
+              Pre-filled from your profile · editable
+            </p>
+          </div>
+
+          {/* 2. Location pin (auto-defaults to current location) */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Location Pin *</label>
+            <p className="text-xs text-gray-500 mb-2">
+              The map defaults to your current location. Click or drag the pin to refine.
+            </p>
+            <LocationPicker value={locationValue} onChange={handleLocationChange} />
+          </div>
+
+          {/* 2b. Address auto-populated; cascading country/state/city dropdowns */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+            <input
+              type="text"
+              value={form.address_line}
+              onChange={(e) => set('address_line', e.target.value)}
+              placeholder="Auto-filled from the pin — edit to refine"
               className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">For</label>
-            <select
-              value={form.listing_type}
-              onChange={(e) => set('listing_type', e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white capitalize"
-            >
-              <option value="rent">Rent</option>
-              <option value="sale">Sale</option>
-            </select>
-          </div>
-        </div>
 
-        {/* 5. Property Type */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Property Type *</label>
-          <select
-            value={form.property_type}
-            onChange={(e) => set('property_type', e.target.value)}
-            required
-            className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white capitalize"
-          >
-            {PROPERTY_TYPES.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* 6. BHK — only for house-like types */}
-        {requiresBhk && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">BHK *</label>
-            <div className="flex flex-wrap gap-2">
-              {BHK_OPTIONS.map((b) => (
-                <button
-                  key={b}
-                  type="button"
-                  onClick={() => set('bhk', String(b))}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
-                    String(form.bhk) === String(b)
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'border-gray-300 text-gray-600 hover:border-blue-400'
-                  }`}
-                >
-                  {b} BHK
-                </button>
-              ))}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Country *</label>
+              <select
+                value={form.country}
+                onChange={(e) => setMany({ country: e.target.value, state: '', city: '' })}
+                required
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                {countryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                {form.country && !countryOptions.includes(form.country) && (
+                  <option value={form.country}>{form.country}</option>
+                )}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">State</label>
+              <select
+                value={form.state}
+                onChange={(e) => setMany({ state: e.target.value, city: '' })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="">Select state…</option>
+                {stateOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                {form.state && !stateOptions.includes(form.state) && (
+                  <option value={form.state}>{form.state}</option>
+                )}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
+              <select
+                value={form.city}
+                onChange={(e) => set('city', e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="">Select city…</option>
+                {cityOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                {form.city && !cityOptions.includes(form.city) && (
+                  <option value={form.city}>{form.city}</option>
+                )}
+              </select>
             </div>
           </div>
-        )}
 
-        {/* Optional email */}
-        <details className="group">
-          <summary className="cursor-pointer text-xs text-blue-600 hover:underline list-none">
-            <span className="group-open:hidden">+ Add email (optional)</span>
-            <span className="hidden group-open:inline">− Hide email</span>
-          </summary>
-          <div className="mt-2">
+          {/* 3. Phone */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Phone *</label>
             <input
-              type="email"
-              value={form.contact_email}
-              onChange={(e) => set('contact_email', e.target.value)}
-              placeholder="you@example.com"
+              type="tel"
+              value={form.contact_phone}
+              onChange={(e) => set('contact_phone', e.target.value)}
+              placeholder="9876543210"
+              required
+              pattern="[0-9+\-\s]{7,20}"
               className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
-        </details>
 
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white py-2.5 rounded-lg font-semibold text-sm transition-colors"
-        >
-          {submitting ? <Spinner size="sm" className="py-0" /> : '⚡ Quick Post'}
-        </button>
+          {/* 4. Price + listing */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Price ({form.listing_type === 'rent' ? '₹/month' : '₹ total'}) *
+              </label>
+              <input
+                type="number"
+                value={form.price}
+                onChange={(e) => set('price', e.target.value)}
+                placeholder="e.g. 28000"
+                required
+                min={0}
+                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">For</label>
+              <select
+                value={form.listing_type}
+                onChange={(e) => set('listing_type', e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white capitalize"
+              >
+                <option value="rent">Rent</option>
+                <option value="sale">Sale</option>
+              </select>
+            </div>
+          </div>
 
-        <p className="text-center text-xs text-gray-400 mt-2">
-          Want to add photos, amenities, area &amp; more details?{' '}
+          {/* 5. Property Type */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Property Type *</label>
+            <select
+              value={form.property_type}
+              onChange={(e) => set('property_type', e.target.value)}
+              required
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white capitalize"
+            >
+              {PROPERTY_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+
+          {/* 6. BHK — only for house-like types */}
+          {requiresBhk && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">BHK *</label>
+              <div className="flex flex-wrap gap-2">
+                {BHK_OPTIONS.map((b) => (
+                  <button
+                    key={b}
+                    type="button"
+                    onClick={() => set('bhk', String(b))}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
+                      String(form.bhk) === String(b)
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'border-gray-300 text-gray-600 hover:border-blue-400'
+                    }`}
+                  >
+                    {b} BHK
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Optional email */}
+          <details className="group">
+            <summary className="cursor-pointer text-xs text-blue-600 hover:underline list-none">
+              <span className="group-open:hidden">+ Add email (optional)</span>
+              <span className="hidden group-open:inline">− Hide email</span>
+            </summary>
+            <div className="mt-2">
+              <input
+                type="email"
+                value={form.contact_email}
+                onChange={(e) => set('contact_email', e.target.value)}
+                placeholder="you@example.com"
+                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </details>
+
           <button
-            type="button"
-            onClick={() => navigate('/post-property')}
-            className="text-blue-600 hover:underline"
+            type="submit"
+            disabled={submitting}
+            className="w-full bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white py-2.5 rounded-lg font-semibold text-sm transition-colors"
           >
-            Use the full post flow →
+            {submitting ? <Spinner size="sm" className="py-0" /> : '⚡ Quick Post'}
           </button>
-        </p>
-      </form>
+
+          <p className="text-center text-xs text-gray-400 mt-2">
+            Want to add photos, amenities, area &amp; more details?{' '}
+            <button
+              type="button"
+              onClick={() => navigate('/post-property')}
+              className="text-blue-600 hover:underline"
+            >
+              Use the full post flow →
+            </button>
+          </p>
+        </form>
+
+        {/* RIGHT — live preview */}
+        <aside className="lg:col-span-1">
+          <div className="lg:sticky lg:top-20">
+            <PropertyPreview form={form} compact />
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }

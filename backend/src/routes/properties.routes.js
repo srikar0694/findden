@@ -23,7 +23,8 @@ const transitItemSchema = Joi.object({
 
 const createPropertySchema = Joi.object({
   title: Joi.string().min(5).max(255).required(),
-  description: Joi.string().max(5000).optional(),
+  // CR §1.2 — description is no longer required.
+  description: Joi.string().allow('', null).max(5000).optional(),
   property_type: Joi.string().valid(...PROPERTY_TYPES).required(),
   listing_type: Joi.string().valid(...LISTING_TYPES).required(),
   price: Joi.number().positive().required(),
@@ -34,10 +35,12 @@ const createPropertySchema = Joi.object({
   furnishing: Joi.string().valid(...FURNISHING_TYPES).optional(),
   floor: Joi.number().integer().min(0).optional(),
   total_floors: Joi.number().integer().min(1).optional(),
-  address_line: Joi.string().required(),
+  address_line: Joi.string().allow('', null).optional(),
+  country: Joi.string().max(80).default('India'),
   city: Joi.string().required(),
   state: Joi.string().required(),
-  pincode: Joi.string().pattern(/^[0-9]{5,10}$/).required(),
+  // CR §1.2 — pincode is no longer required.
+  pincode: Joi.string().pattern(/^[0-9]{5,10}$/).allow('', null).optional(),
   latitude: Joi.number().min(-90).max(90).required(),
   longitude: Joi.number().min(-180).max(180).required(),
   images: Joi.array().items(imageRef).default([]),
@@ -70,10 +73,11 @@ const quickPostSchema = Joi.object({
   property_type: Joi.string().valid(...PROPERTY_TYPES).required(),
   listing_type: Joi.string().valid(...LISTING_TYPES).default('rent'),
   bhk: Joi.number().integer().min(1).max(10).optional(),
+  country: Joi.string().max(80).default('India'),
   city: Joi.string().optional(),
   state: Joi.string().optional(),
-  address_line: Joi.string().optional(),
-  pincode: Joi.string().pattern(/^[0-9]{5,10}$/).optional(),
+  address_line: Joi.string().allow('', null).optional(),
+  pincode: Joi.string().pattern(/^[0-9]{5,10}$/).allow('', null).optional(),
   images: Joi.array().items(imageRef).default([]),
 });
 
@@ -96,10 +100,11 @@ const updatePropertySchema = Joi.object({
   contact_email: Joi.string().email(),
   latitude: Joi.number().min(-90).max(90),
   longitude: Joi.number().min(-180).max(180),
-  address_line: Joi.string(),
+  address_line: Joi.string().allow('', null),
+  country: Joi.string().max(80),
   city: Joi.string(),
   state: Joi.string(),
-  pincode: Joi.string().pattern(/^[0-9]{5,10}$/),
+  pincode: Joi.string().pattern(/^[0-9]{5,10}$/).allow('', null),
   bhk: Joi.number().integer().min(1).max(10),
 }).min(1);
 

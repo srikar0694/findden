@@ -1,59 +1,74 @@
-const db = require('../config/database');
-
-const TABLE = 'messages';
+const { query } = require('../config/database');
 
 const MessageModel = {
-  findAll: () => db.findAll(TABLE),
+  async findAll() {
+    const { rows } = await query(`SELECT * FROM messages ORDER BY created_at DESC`);
+    return rows;
+  },
 
-  findById: (id) => db.findById(TABLE, id),
+  async findById(id) {
+    const { rows } = await query(`SELECT * FROM messages WHERE id = $1`, [id]);
+    return rows[0] || null;
+  },
 
-  findBySenderId: (userId) =>
-    db.findWhere(TABLE, (m) => m.sender_id === userId)
-      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
-
-  findByPropertyId: (propertyId) =>
-    db.findWhere(TABLE, (m) => m.property_id === propertyId)
-      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
-
-  countSentInWindow: (userId, sinceIsoDate) => {
-    const cutoff = new Date(sinceIsoDate).getTime();
-    return db.count(TABLE, (m) =>
-      m.sender_id === userId && new Date(m.created_at).getTime() >= cutoff
+  async findBySenderId(userId) {
+    const { rows } = await query(
+      `SELECT * FROM messages WHERE sender_id = $1 ORDER BY created_at DESC`,
+      [userId]
     );
+    return rows;
   },
 
-  /** Distinct property IDs the user has messaged or contacted. */
-  contactedPropertyIds: (userId) => {
-    const ids = new Set();
-    db.findWhere(TABLE, (m) => m.sender_id === userId)
-      .forEach((m) => ids.add(m.property_id));
-    return Array.from(ids);
+  async findByPropertyId(propertyId) {
+    const { rows } = await query(
+      `SELECT * FROM messages WHERE property_id = $1 ORDER BY created_at DESC`,
+      [propertyId]
+    );
+    return rows;
   },
 
-  /**
-   * Distinct property IDs with the most-recent message timestamp the user
-   * sent for each — used by the dashboard "Contacted" tab.
-   * Returns: [{propertyId, lastContactedAt}], newest first.
-   */
-  contactedSummary: (userId) => {
-    const map = new Map(); // propertyId → ISO timestamp (latest)
-    db.findWhere(TABLE, (m) => m.sender_id === userId).forEach((m) => {
-      const prev = map.get(m.property_id);
-      if (!prev || new Date(m.created_at) > new Date(prev)) {
-        map.set(m.property_id, m.created_at);
-      }
-    });
-    return Array.from(map.entries())
-      .map(([propertyId, lastContactedAt]) => ({ propertyId, lastContactedAt }))
-      .sort((a, b) => new Date(b.lastContactedAt) - new Date(a.lastContactedAt));
+  async countSentInWindow(userId, sinceIsoDate) {
+    const { rows } = await query(
+      `SELECT COUNT(*)::int AS n FROM messages WHERE sender_id = $1 AND created_at >= $2`,
+      [userId, sinceIsoDate]
+    );
+    return rows[0].n;
   },
 
-  create: (data) =>
-    db.insert(TABLE, {
-      ...data,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }),
+  async contactedPropertyIds(userId) {
+    const { rows } = await query(
+      `SELECT DISTINCT property_id FROM messages WHERE sender_id = $1`,
+      [userId]
+    );
+    return rows.map((r) => r.property_id);
+  },
+
+  async contactedSummary(userId) {
+    const { rows } = await query(
+      `SELECT property_id, MAX(created_at) AS last_contacted_at
+       FROM messages
+       WHERE sender_id = $1
+       GROUP BY property_id
+       ORDER BY last_contacted_at DESC`,
+      [userId]
+    );
+    return rows.map((r) => ({ propertyId: r.property_id, lastContactedAt: r.last_contacted_at }));
+  },
+
+  async create(data) {
+    const { rows } = await query(
+      `INSERT INTO messages
+         (id, sender_id, recipient_id, property_id, sender_name, sender_phone, sender_email, body, read)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING *`,
+      [
+        data.id, data.sender_id, data.recipient_id, data.property_id,
+        data.sender_name || null, data.sender_phone || null, data.sender_email || null,
+        data.body, data.read ?? false,
+      ]
+    );
+    return rows[0];
+  },
 };
 
 module.exports = MessageModel;

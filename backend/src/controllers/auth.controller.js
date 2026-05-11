@@ -33,9 +33,9 @@ const AuthController = {
     }
   },
 
-  getMe(req, res, next) {
+  async getMe(req, res, next) {
     try {
-      const user = AuthService.getMe(req.user.id);
+      const user = await AuthService.getMe(req.user.id);
       return success(res, user);
     } catch (err) {
       return next(err);
