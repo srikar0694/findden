@@ -8,12 +8,23 @@ const { PROPERTY_TYPES, LISTING_TYPES, FURNISHING_TYPES, PROPERTY_STATUSES } = r
 
 const router = express.Router();
 
-// Image references can be either a full URI (e.g. https://images.unsplash.com/…)
+// Image / video references can be either a full URI (e.g. https://…)
 // or a path served by our /uploads static handler (e.g. /uploads/properties/…).
 const imageRef = Joi.alternatives().try(
   Joi.string().uri(),
   Joi.string().pattern(/^\/uploads\/[\w./-]+$/),
 );
+const mediaRef = imageRef;
+
+// CR — property-type → field requirement matrix
+//   apartment / house / villa : bedrooms*, bathrooms, area_sqft*, furnishing*
+//   plot                      : area_sqft* only (no bedrooms/bath/furnishing)
+//   commercial                : area_sqft* only
+//   pg                        : room_sharing*, bathrooms, furnishing*
+const TYPES_WITH_BHK   = ['apartment', 'house', 'villa'];
+const TYPES_WITH_AREA  = ['apartment', 'house', 'villa', 'plot', 'commercial'];
+const TYPES_WITH_FURN  = ['apartment', 'house', 'villa', 'pg'];
+const ROOM_SHARING_OPTIONS = ['single', 'double', 'triple', 'shared'];
 
 const transitItemSchema = Joi.object({
   type: Joi.string().valid('metro', 'bus', 'train', 'airport').required(),
@@ -29,21 +40,33 @@ const createPropertySchema = Joi.object({
   listing_type: Joi.string().valid(...LISTING_TYPES).required(),
   price: Joi.number().positive().required(),
   price_negotiable: Joi.boolean().default(false),
-  bedrooms: Joi.number().integer().min(0).max(20).optional(),
+  // CR — bedrooms required iff property_type ∈ {apartment, house, villa}
+  bedrooms: Joi.number().integer().min(0).max(20)
+    .when('property_type', { is: Joi.valid(...TYPES_WITH_BHK), then: Joi.required(), otherwise: Joi.optional() }),
   bathrooms: Joi.number().integer().min(0).max(20).optional(),
-  area_sqft: Joi.number().positive().optional(),
-  furnishing: Joi.string().valid(...FURNISHING_TYPES).optional(),
+  // CR — area_sqft required for everything except PG
+  area_sqft: Joi.number().positive()
+    .when('property_type', { is: Joi.valid(...TYPES_WITH_AREA), then: Joi.required(), otherwise: Joi.optional() }),
+  // CR — furnishing required iff property_type ∈ {apartment, house, villa, pg}
+  furnishing: Joi.string().valid(...FURNISHING_TYPES)
+    .when('property_type', { is: Joi.valid(...TYPES_WITH_FURN), then: Joi.required(), otherwise: Joi.optional() }),
+  // CR — PG-only: room sharing (single / double / triple / shared)
+  room_sharing: Joi.string().valid(...ROOM_SHARING_OPTIONS)
+    .when('property_type', { is: 'pg', then: Joi.required(), otherwise: Joi.optional() }),
   floor: Joi.number().integer().min(0).optional(),
   total_floors: Joi.number().integer().min(1).optional(),
-  address_line: Joi.string().allow('', null).optional(),
-  country: Joi.string().max(80).default('India'),
+  address_line: Joi.string().required(),
+  country: Joi.string().max(80).required(),
   city: Joi.string().required(),
   state: Joi.string().required(),
-  // CR §1.2 — pincode is no longer required.
+  // CR §1.2 — pincode is optional.
   pincode: Joi.string().pattern(/^[0-9]{5,10}$/).allow('', null).optional(),
   latitude: Joi.number().min(-90).max(90).required(),
   longitude: Joi.number().min(-180).max(180).required(),
-  images: Joi.array().items(imageRef).default([]),
+  // CR — at least one image is required.
+  images: Joi.array().items(imageRef).min(1).required(),
+  // CR — optional video URL (size is enforced at upload time, not here).
+  video_url: mediaRef.allow('', null).optional(),
   amenities: Joi.array().items(Joi.string()).default([]),
   available_from: Joi.string().isoDate().optional(),
   // Project lifecycle: ready_to_move | under_construction | pre_launch | upcoming
@@ -52,11 +75,11 @@ const createPropertySchema = Joi.object({
     .default('ready_to_move'),
   // Nearest public transport list
   nearest_transit: Joi.array().items(transitItemSchema).default([]),
-  // Contact fields the buyer will see after unlocking. Fall back to the
-  // owner's own profile phone/email if not provided.
-  contact_name: Joi.string().max(120).optional(),
-  contact_phone: Joi.string().pattern(/^[0-9+\-\s]{6,20}$/).optional(),
-  contact_email: Joi.string().email().optional(),
+  // Contact fields the buyer will see after unlocking. Owner name + phone are
+  // required, email is optional.
+  contact_name: Joi.string().max(120).required(),
+  contact_phone: Joi.string().pattern(/^[0-9+\-\s]{6,20}$/).required(),
+  contact_email: Joi.string().email().allow('', null).optional(),
   bhk: Joi.number().integer().min(1).max(10).optional(),
 });
 
@@ -68,17 +91,27 @@ const quickPostSchema = Joi.object({
   latitude: Joi.number().min(-90).max(90).required(),
   longitude: Joi.number().min(-180).max(180).required(),
   contact_phone: Joi.string().pattern(/^[0-9+\-\s]{6,20}$/).required(),
-  contact_email: Joi.string().email().optional(),
+  contact_email: Joi.string().email().allow('', null).optional(),
   price: Joi.number().positive().required(),
   property_type: Joi.string().valid(...PROPERTY_TYPES).required(),
   listing_type: Joi.string().valid(...LISTING_TYPES).default('rent'),
-  bhk: Joi.number().integer().min(1).max(10).optional(),
+  // CR — bedrooms required for apartment/house/villa, optional otherwise.
+  bhk: Joi.number().integer().min(1).max(10)
+    .when('property_type', { is: Joi.valid(...TYPES_WITH_BHK), then: Joi.required(), otherwise: Joi.optional() }),
+  bathrooms: Joi.number().integer().min(0).max(20).optional(),
+  area_sqft: Joi.number().positive()
+    .when('property_type', { is: Joi.valid(...TYPES_WITH_AREA), then: Joi.required(), otherwise: Joi.optional() }),
+  furnishing: Joi.string().valid(...FURNISHING_TYPES)
+    .when('property_type', { is: Joi.valid(...TYPES_WITH_FURN), then: Joi.required(), otherwise: Joi.optional() }),
+  room_sharing: Joi.string().valid(...ROOM_SHARING_OPTIONS)
+    .when('property_type', { is: 'pg', then: Joi.required(), otherwise: Joi.optional() }),
   country: Joi.string().max(80).default('India'),
-  city: Joi.string().optional(),
-  state: Joi.string().optional(),
-  address_line: Joi.string().allow('', null).optional(),
+  city: Joi.string().required(),
+  state: Joi.string().required(),
+  address_line: Joi.string().required(),
   pincode: Joi.string().pattern(/^[0-9]{5,10}$/).allow('', null).optional(),
-  images: Joi.array().items(imageRef).default([]),
+  images: Joi.array().items(imageRef).min(1).required(),
+  video_url: mediaRef.allow('', null).optional(),
 });
 
 const verifySchema = Joi.object({
@@ -87,17 +120,24 @@ const verifySchema = Joi.object({
 
 const updatePropertySchema = Joi.object({
   title: Joi.string().min(5).max(255),
-  description: Joi.string().max(5000),
+  description: Joi.string().allow('', null).max(5000),
+  property_type: Joi.string().valid(...PROPERTY_TYPES),
+  listing_type: Joi.string().valid(...LISTING_TYPES),
   price: Joi.number().positive(),
   price_negotiable: Joi.boolean(),
   status: Joi.string().valid(...PROPERTY_STATUSES),
+  bedrooms: Joi.number().integer().min(0).max(20),
+  bathrooms: Joi.number().integer().min(0).max(20),
+  area_sqft: Joi.number().positive(),
   furnishing: Joi.string().valid(...FURNISHING_TYPES),
-  images: Joi.array().items(imageRef),
+  room_sharing: Joi.string().valid(...ROOM_SHARING_OPTIONS).allow('', null),
+  images: Joi.array().items(imageRef).min(1),
+  video_url: mediaRef.allow('', null),
   amenities: Joi.array().items(Joi.string()),
   available_from: Joi.string().isoDate(),
   contact_name: Joi.string().max(120),
   contact_phone: Joi.string().pattern(/^[0-9+\-\s]{6,20}$/),
-  contact_email: Joi.string().email(),
+  contact_email: Joi.string().email().allow('', null),
   latitude: Joi.number().min(-90).max(90),
   longitude: Joi.number().min(-180).max(180),
   address_line: Joi.string().allow('', null),

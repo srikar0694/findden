@@ -5,6 +5,7 @@ import { propertiesService } from '../services/properties.service';
 import Spinner from '../components/shared/Spinner';
 import LocationPicker from '../components/map/LocationPicker';
 import ImageUploader from '../components/property/ImageUploader';
+import VideoUploader from '../components/property/VideoUploader';
 import PropertyPreview from '../components/property/PropertyPreview';
 import { useAuthStore } from '../store/authStore';
 import { listCountries, listStates, listCities, reconcileLocation } from '../utils/locations';
@@ -12,6 +13,14 @@ import { listCountries, listStates, listCities, reconcileLocation } from '../uti
 const PROPERTY_TYPES = ['apartment', 'house', 'villa', 'plot', 'commercial', 'pg'];
 const LISTING_TYPES = ['sale', 'rent'];
 const FURNISHING_TYPES = ['unfurnished', 'semi', 'furnished'];
+const ROOM_SHARING_OPTIONS = ['single', 'double', 'triple', 'shared'];
+
+// CR — property-type → field requirement matrix
+const TYPES_WITH_BHK_BATH = ['apartment', 'house', 'villa']; // bedrooms/bathrooms shown
+const TYPES_WITH_AREA     = ['apartment', 'house', 'villa', 'plot', 'commercial']; // area shown
+const TYPES_WITH_FURN     = ['apartment', 'house', 'villa', 'pg']; // furnishing shown
+const TYPES_WITH_ROOM_SH  = ['pg']; // room_sharing shown (PG only)
+const TYPES_WITH_BATH     = ['apartment', 'house', 'villa', 'pg']; // PG also has bathroom
 
 const AMENITY_OPTIONS = [
   'parking', 'gym', 'pool', 'garden', 'lift', 'security',
@@ -64,10 +73,19 @@ export default function PostPropertyPage() {
     amenities: [],
     available_from: '',
     images: [],
+    video_url: '',
+    room_sharing: '',
     contact_name: '',
     contact_phone: '',
     contact_email: '',
   });
+
+  // CR — derived per-type field flags
+  const showBedrooms    = TYPES_WITH_BHK_BATH.includes(form.property_type);
+  const showBathrooms   = TYPES_WITH_BATH.includes(form.property_type);
+  const showArea        = TYPES_WITH_AREA.includes(form.property_type);
+  const showFurnishing  = TYPES_WITH_FURN.includes(form.property_type);
+  const showRoomSharing = TYPES_WITH_ROOM_SH.includes(form.property_type);
 
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
   const setMany = (patch) => setForm((f) => ({ ...f, ...patch }));
@@ -126,23 +144,45 @@ export default function PostPropertyPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // CR — client-side guard for the conditional required fields + min 1 image.
+    if (!form.images || form.images.length < 1) {
+      return flash('error', 'Please upload at least one image.');
+    }
+    if (showBedrooms && !form.bedrooms) {
+      return flash('error', 'Bedrooms is required for this property type.');
+    }
+    if (showArea && !form.area_sqft) {
+      return flash('error', 'Area (sqft) is required for this property type.');
+    }
+    if (showFurnishing && !form.furnishing) {
+      return flash('error', 'Furnishing is required for this property type.');
+    }
+    if (showRoomSharing && !form.room_sharing) {
+      return flash('error', 'Room sharing is required for PG listings.');
+    }
+
     setSubmitting(true);
     try {
       const payload = {
         ...form,
         price: parseFloat(form.price),
-        bedrooms: form.bedrooms ? parseInt(form.bedrooms, 10) : undefined,
-        bathrooms: form.bathrooms ? parseInt(form.bathrooms, 10) : undefined,
-        area_sqft: form.area_sqft ? parseFloat(form.area_sqft) : undefined,
+        bedrooms: showBedrooms && form.bedrooms ? parseInt(form.bedrooms, 10) : undefined,
+        bathrooms: showBathrooms && form.bathrooms ? parseInt(form.bathrooms, 10) : undefined,
+        area_sqft: showArea && form.area_sqft ? parseFloat(form.area_sqft) : undefined,
+        furnishing: showFurnishing ? form.furnishing : undefined,
+        room_sharing: showRoomSharing ? form.room_sharing : undefined,
         floor: form.floor ? parseInt(form.floor, 10) : undefined,
         total_floors: form.total_floors ? parseInt(form.total_floors, 10) : undefined,
         latitude: parseFloat(form.latitude),
         longitude: parseFloat(form.longitude),
         images: form.images.filter(Boolean),
+        video_url: form.video_url || undefined,
         // Send empty strings as undefined so backend treats them as missing.
         description: form.description?.trim() || undefined,
         pincode: form.pincode?.trim() || undefined,
         address_line: form.address_line?.trim() || undefined,
+        contact_email: form.contact_email?.trim() || undefined,
       };
       await propertiesService.create(payload);
       flash('success', 'Property posted successfully! Redirecting…', 1500);
@@ -216,15 +256,17 @@ export default function PostPropertyPage() {
               <div className="space-y-5">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Property Type</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Property Type *</label>
                     <select value={form.property_type} onChange={(e) => set('property_type', e.target.value)}
+                      required
                       className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white capitalize">
                       {PROPERTY_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Listing Type</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Listing Type *</label>
                     <select value={form.listing_type} onChange={(e) => set('listing_type', e.target.value)}
+                      required
                       className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white capitalize">
                       {LISTING_TYPES.map((t) => <option key={t} value={t}>For {t}</option>)}
                     </select>
@@ -315,9 +357,9 @@ export default function PostPropertyPage() {
 
                 {/* CR §1.2.2 — try to prepopulate address from the map. */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Street Address</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Street Address *</label>
                   <input type="text" value={form.address_line} onChange={(e) => set('address_line', e.target.value)}
-                    placeholder="Block, society, landmark"
+                    placeholder="Block, society, landmark" required
                     className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
 
@@ -391,44 +433,71 @@ export default function PostPropertyPage() {
             {/* Step 3: Property Details */}
             {step === 3 && (
               <div className="space-y-5">
+                {/* CR — bedrooms / bathrooms / area_sqft conditional on property_type */}
                 <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Bedrooms</label>
-                    <input type="number" value={form.bedrooms} onChange={(e) => set('bedrooms', e.target.value)}
-                      placeholder="2" min={0}
-                      className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Bathrooms</label>
-                    <input type="number" value={form.bathrooms} onChange={(e) => set('bathrooms', e.target.value)}
-                      placeholder="2" min={0}
-                      className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Area (sqft)</label>
-                    <input type="number" value={form.area_sqft} onChange={(e) => set('area_sqft', e.target.value)}
-                      placeholder="1050" min={0}
-                      className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  </div>
+                  {showBedrooms && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Bedrooms *</label>
+                      <input type="number" value={form.bedrooms} onChange={(e) => set('bedrooms', e.target.value)}
+                        placeholder="2" min={0} required
+                        className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                  )}
+                  {showBathrooms && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Bathrooms <span className="text-gray-400 font-normal">(optional)</span>
+                      </label>
+                      <input type="number" value={form.bathrooms} onChange={(e) => set('bathrooms', e.target.value)}
+                        placeholder="2" min={0}
+                        className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                  )}
+                  {showArea && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Area (sqft) *</label>
+                      <input type="number" value={form.area_sqft} onChange={(e) => set('area_sqft', e.target.value)}
+                        placeholder="1050" min={0} required
+                        className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
+                  {showFurnishing && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Furnishing *</label>
+                      <select value={form.furnishing} onChange={(e) => set('furnishing', e.target.value)}
+                        required
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white capitalize">
+                        {FURNISHING_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </div>
+                  )}
+                  {showRoomSharing && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Room Sharing *</label>
+                      <select value={form.room_sharing} onChange={(e) => set('room_sharing', e.target.value)}
+                        required
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white capitalize">
+                        <option value="">Select…</option>
+                        {ROOM_SHARING_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </div>
+                  )}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Furnishing</label>
-                    <select value={form.furnishing} onChange={(e) => set('furnishing', e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white capitalize">
-                      {FURNISHING_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Available From</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Available From <span className="text-gray-400 font-normal">(optional)</span>
+                    </label>
                     <input type="date" value={form.available_from} onChange={(e) => set('available_from', e.target.value)}
                       className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Amenities</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Amenities <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
                   <div className="flex flex-wrap gap-2">
                     {AMENITY_OPTIONS.map((a) => (
                       <button key={a} type="button" onClick={() => toggleAmenity(a)}
@@ -441,7 +510,17 @@ export default function PostPropertyPage() {
                   </div>
                 </div>
 
-                <ImageUploader value={form.images} onChange={(imgs) => set('images', imgs)} max={10} />
+                {/* CR — at least one image required (≤100 MB each) */}
+                <div>
+                  <ImageUploader value={form.images} onChange={(imgs) => set('images', imgs)} max={10} />
+                  <p className="text-[11px] text-gray-500 mt-1">At least one image is required.</p>
+                </div>
+
+                {/* CR — optional video, ≤300 MB */}
+                <VideoUploader
+                  value={form.video_url || null}
+                  onChange={(url) => set('video_url', url || '')}
+                />
 
                 <div className="flex gap-3">
                   <button type="button" onClick={() => setStep(2)}

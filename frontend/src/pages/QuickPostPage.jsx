@@ -5,21 +5,29 @@ import { propertiesService } from '../services/properties.service';
 import { useAuthStore } from '../store/authStore';
 import LocationPicker from '../components/map/LocationPicker';
 import PropertyPreview from '../components/property/PropertyPreview';
+import ImageUploader from '../components/property/ImageUploader';
+import VideoUploader from '../components/property/VideoUploader';
 import Spinner from '../components/shared/Spinner';
 import { listCountries, listStates, listCities, reconcileLocation } from '../utils/locations';
 
 /**
- * QuickPostPage (CR §2 / Quick Post)
- * -----------------------------------
- * - Map defaults to current location; "use my location" / "confirm
- *   location" buttons removed.
+ * QuickPostPage (CR §2 / Quick Post + Change Request)
+ * ---------------------------------------------------
+ * - Map defaults to current location.
  * - Live preview shown alongside the form.
- * - Address, country, state, city are populated from the geocoded pin
- *   (country/state/city as cascading dropdowns).
- * - Toast popup for success / error; success ⇒ redirect to /search.
+ * - Address, country, state, city populated from the geocoded pin.
+ * - CR — conditional fields: bedrooms / bathrooms / area_sqft / furnishing /
+ *   room_sharing depending on the property_type.
  */
-const PROPERTY_TYPES = ['apartment', 'house', 'villa', 'plot', 'commercial', 'pg'];
-const BHK_REQUIRED_TYPES = ['apartment', 'house', 'villa'];
+const PROPERTY_TYPES   = ['apartment', 'house', 'villa', 'plot', 'commercial', 'pg'];
+const FURNISHING_TYPES = ['unfurnished', 'semi', 'furnished'];
+const ROOM_SHARING_OPTIONS = ['single', 'double', 'triple', 'shared'];
+
+const TYPES_WITH_BHK_BATH = ['apartment', 'house', 'villa'];
+const TYPES_WITH_AREA     = ['apartment', 'house', 'villa', 'plot', 'commercial'];
+const TYPES_WITH_FURN     = ['apartment', 'house', 'villa', 'pg'];
+const TYPES_WITH_BATH     = ['apartment', 'house', 'villa', 'pg'];
+const TYPES_WITH_ROOM_SH  = ['pg'];
 const BHK_OPTIONS = [1, 2, 3, 4, 5, 6];
 
 export default function QuickPostPage() {
@@ -41,6 +49,10 @@ export default function QuickPostPage() {
     price: '',
     property_type: 'apartment',
     bhk: '',
+    bathrooms: '',
+    area_sqft: '',
+    furnishing: 'unfurnished',
+    room_sharing: '',
     listing_type: 'rent',
     latitude: '',
     longitude: '',
@@ -49,6 +61,8 @@ export default function QuickPostPage() {
     city: '',
     state: '',
     pincode: '',
+    images: [],
+    video_url: '',
   });
 
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
@@ -64,7 +78,11 @@ export default function QuickPostPage() {
     }));
   }, [user]);
 
-  const requiresBhk = BHK_REQUIRED_TYPES.includes(form.property_type);
+  const requiresBhk     = TYPES_WITH_BHK_BATH.includes(form.property_type);
+  const showBathrooms   = TYPES_WITH_BATH.includes(form.property_type);
+  const showArea        = TYPES_WITH_AREA.includes(form.property_type);
+  const showFurnishing  = TYPES_WITH_FURN.includes(form.property_type);
+  const showRoomSharing = TYPES_WITH_ROOM_SH.includes(form.property_type);
 
   const countryOptions = useMemo(() => listCountries(), []);
   const stateOptions   = useMemo(() => listStates(form.country), [form.country]);
@@ -99,7 +117,13 @@ export default function QuickPostPage() {
       return flash('error', 'Please drop a pin on the map for your property.');
     }
     if (!form.price)                 return flash('error', 'Price is required.');
-    if (requiresBhk && !form.bhk)    return flash('error', 'BHK is required for this property type.');
+    if (!form.address_line.trim())   return flash('error', 'Street address is required.');
+    if (!form.state || !form.city)   return flash('error', 'State and city are required.');
+    if (!form.images || form.images.length < 1) return flash('error', 'Please upload at least one image.');
+    if (requiresBhk && !form.bhk)    return flash('error', 'Bedrooms is required for this property type.');
+    if (showArea && !form.area_sqft) return flash('error', 'Area (sqft) is required for this property type.');
+    if (showFurnishing && !form.furnishing) return flash('error', 'Furnishing is required for this property type.');
+    if (showRoomSharing && !form.room_sharing) return flash('error', 'Room sharing is required for PG listings.');
 
     setSubmitting(true);
     try {
@@ -112,12 +136,18 @@ export default function QuickPostPage() {
         listing_type: form.listing_type,
         latitude: parseFloat(form.latitude),
         longitude: parseFloat(form.longitude),
-        address_line: form.address_line || undefined,
+        address_line: form.address_line,
         country: form.country || 'India',
-        city: form.city || undefined,
-        state: form.state || undefined,
+        city: form.city,
+        state: form.state,
         pincode: form.pincode || undefined,
         bhk: requiresBhk && form.bhk ? parseInt(form.bhk, 10) : undefined,
+        bathrooms: showBathrooms && form.bathrooms ? parseInt(form.bathrooms, 10) : undefined,
+        area_sqft: showArea && form.area_sqft ? parseFloat(form.area_sqft) : undefined,
+        furnishing: showFurnishing ? form.furnishing : undefined,
+        room_sharing: showRoomSharing ? form.room_sharing : undefined,
+        images: form.images.filter(Boolean),
+        video_url: form.video_url || undefined,
       };
       await propertiesService.quickCreate(payload);
       flash('success', 'Quick post created — redirecting to search…', 1500);
@@ -314,7 +344,7 @@ export default function QuickPostPage() {
           {/* 6. BHK — only for house-like types */}
           {requiresBhk && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">BHK *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Bedrooms *</label>
               <div className="flex flex-wrap gap-2">
                 {BHK_OPTIONS.map((b) => (
                   <button
@@ -333,6 +363,61 @@ export default function QuickPostPage() {
               </div>
             </div>
           )}
+
+          {/* 7. Area / Bathrooms / Furnishing / Room sharing — conditional per type */}
+          <div className="grid grid-cols-2 gap-3">
+            {showArea && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Area (sqft) *</label>
+                <input type="number" value={form.area_sqft} onChange={(e) => set('area_sqft', e.target.value)}
+                  placeholder="1050" min={0} required
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+            )}
+            {showBathrooms && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Bathrooms <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <input type="number" value={form.bathrooms} onChange={(e) => set('bathrooms', e.target.value)}
+                  placeholder="2" min={0}
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+            )}
+            {showFurnishing && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Furnishing *</label>
+                <select value={form.furnishing} onChange={(e) => set('furnishing', e.target.value)}
+                  required
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white capitalize">
+                  {FURNISHING_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+            )}
+            {showRoomSharing && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Room Sharing *</label>
+                <select value={form.room_sharing} onChange={(e) => set('room_sharing', e.target.value)}
+                  required
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white capitalize">
+                  <option value="">Select…</option>
+                  {ROOM_SHARING_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {/* 8. Images — at least one required (CR) */}
+          <div>
+            <ImageUploader value={form.images} onChange={(imgs) => set('images', imgs)} max={10} />
+            <p className="text-[11px] text-gray-500 mt-1">At least one image is required.</p>
+          </div>
+
+          {/* 9. Optional video — ≤300 MB (CR) */}
+          <VideoUploader
+            value={form.video_url || null}
+            onChange={(url) => set('video_url', url || '')}
+          />
 
           {/* Optional email */}
           <details className="group">
