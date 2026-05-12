@@ -1,57 +1,61 @@
-/**
- * ContactUnlock — persistent entitlement that lets a user view a seller's
- * contact details for a specific property.
- *
- * Row shape (mirrors the SQL table):
- *   id, user_id, property_id, source ('single'|'cart'|'premium'|'admin_grant'),
- *   subscription_id (nullable), transaction_id, granted_at, expires_at (nullable)
- *
- * Business rules implemented here (read-only logic; write paths go through
- * the payments + contacts services):
- *   - Unlocks are unique per (user_id, property_id) — a second grant is a
- *     no-op that returns the existing row.
- *   - Single-tier unlocks never expire.
- *   - Cart/Premium unlocks inherit the subscription's expires_at, but because
- *     the record is persisted, revoking a subscription still leaves the
- *     historical unlock intact for audit purposes.
- */
-
-const db = require('../config/database');
-
-const TABLE = 'contact_unlocks';
+const { query } = require('../config/database');
 
 const ContactUnlockModel = {
-  findById: (id) => db.findById(TABLE, id),
-
-  findByUserId: (userId) =>
-    db.findWhere(TABLE, (u) => u.user_id === userId),
-
-  findByUserAndProperty: (userId, propertyId) =>
-    db.findOne(TABLE, (u) => u.user_id === userId && u.property_id === propertyId),
-
-  countByUser: (userId) =>
-    db.count(TABLE, (u) => u.user_id === userId),
-
-  /**
-   * Grant an unlock if one doesn't already exist.
-   * Idempotent — returns the existing row on duplicate.
-   */
-  grant: (data) => {
-    const existing = ContactUnlockModel.findByUserAndProperty(data.user_id, data.property_id);
-    if (existing) return existing;
-    return db.insert(TABLE, {
-      ...data,
-      granted_at: new Date().toISOString(),
-      expires_at: data.expires_at || null,
-    });
+  async findById(id) {
+    const { rows } = await query(`SELECT * FROM contact_unlocks WHERE id = $1`, [id]);
+    return rows[0] || null;
   },
 
-  /** Check if a user has an active unlock for a property */
-  hasUnlock: (userId, propertyId) => {
-    const u = ContactUnlockModel.findByUserAndProperty(userId, propertyId);
-    if (!u) return false;
-    if (!u.expires_at) return true;
-    return new Date(u.expires_at) > new Date();
+  async findByUserId(userId) {
+    const { rows } = await query(
+      `SELECT * FROM contact_unlocks WHERE user_id = $1 ORDER BY granted_at DESC`,
+      [userId]
+    );
+    return rows;
+  },
+
+  async findByUserAndProperty(userId, propertyId) {
+    const { rows } = await query(
+      `SELECT * FROM contact_unlocks WHERE user_id = $1 AND property_id = $2`,
+      [userId, propertyId]
+    );
+    return rows[0] || null;
+  },
+
+  async countByUser(userId) {
+    const { rows } = await query(
+      `SELECT COUNT(*)::int AS n FROM contact_unlocks WHERE user_id = $1`,
+      [userId]
+    );
+    return rows[0].n;
+  },
+
+  /** Idempotent — returns existing row if already granted. */
+  async grant(data) {
+    const { rows } = await query(
+      `INSERT INTO contact_unlocks
+         (id, user_id, property_id, source, subscription_id, transaction_id, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (user_id, property_id) DO UPDATE
+         SET granted_at = contact_unlocks.granted_at
+       RETURNING *`,
+      [
+        data.id, data.user_id, data.property_id, data.source,
+        data.subscription_id || null, data.transaction_id || null,
+        data.expires_at || null,
+      ]
+    );
+    return rows[0];
+  },
+
+  async hasUnlock(userId, propertyId) {
+    const { rows } = await query(
+      `SELECT 1 FROM contact_unlocks
+       WHERE user_id = $1 AND property_id = $2
+         AND (expires_at IS NULL OR expires_at > NOW())`,
+      [userId, propertyId]
+    );
+    return rows.length > 0;
   },
 };
 

@@ -6,7 +6,14 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:migrate": "node db/migrate.js up",
+    "db:rollback": "node db/migrate.js down",
+    "db:seed": "node db/migrate.js seed",
+    "db:import": "node scripts/import-json.js",
+    "db:reset": "docker compose down -v && docker compose up -d postgres && sleep 3 && npm run db:migrate && npm run db:seed"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -18,6 +25,8 @@
     "joi": "^17.12.3",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
+    "pg": "^8.11.5",
+    "pg-copy-streams": "^6.0.6",
     "uuid": "^9.0.1",
     "winston": "^3.13.0"
   },

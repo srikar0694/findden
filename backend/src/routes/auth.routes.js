@@ -24,12 +24,16 @@ const loginSchema = Joi.object({
 });
 
 // Google OAuth login — frontend sends the Google ID token (or simulated profile).
+// CR §0.1 — also accepts an optional phone collected from a follow-up modal
+// when Google's id_token doesn't carry one (it usually doesn't).
 const googleAuthSchema = Joi.object({
   idToken: Joi.string().allow('', null).optional(),
   email: Joi.string().email().required(),
   name: Joi.string().min(1).required(),
   googleId: Joi.string().required(),
   avatar: Joi.string().uri().allow('', null).optional(),
+  picture: Joi.string().uri().allow('', null).optional(),
+  phone: Joi.string().pattern(/^\+?[0-9\s\-()]{7,20}$/).allow('', null).optional(),
   role: Joi.string().valid(...USER_ROLES.filter((r) => r !== 'admin')).default('buyer'),
 });
 

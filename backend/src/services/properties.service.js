@@ -1,16 +1,3 @@
-/**
- * Properties Service
- * ----------------------------------------------------------------------
- * Business rules:
- *   - Posting a property is ALWAYS FREE. No paywall, no quota, no gateway
- *     call on create().  Monetisation happens on the *buyer* side (contact
- *     unlocks via the Pricing tiers).
- *   - Seller contact details (phone, email) are masked for everyone except:
- *       (a) the owner, or
- *       (b) an admin, or
- *       (c) a user who has an active ContactUnlock for this property.
- */
-
 const { v4: uuidv4 } = require('uuid');
 const PropertyModel = require('../models/property.model');
 const ContactUnlockModel = require('../models/contactUnlock.model');
@@ -38,45 +25,38 @@ const PropertiesService = {
       verified: query.verified === 'true' ? true : query.verified === 'false' ? false : undefined,
     };
 
-    const { rows, total } = PropertyModel.search(filters);
+    const { rows, total } = await PropertyModel.search(filters);
     const { page, limit, offset, meta } = paginate(query, total);
     const paginated = applyPagination(rows, offset, limit);
 
     return {
-      data: paginated.map((p) => formatProperty(p, viewerId)),
+      data: await Promise.all(paginated.map((p) => formatProperty(p, viewerId))),
       meta: { ...meta, page, limit },
     };
   },
 
-  /** Mark a property as sold (owner/agent/admin). */
   async markSold(id, userId, role) {
-    const property = PropertyModel.findById(id);
+    const property = await PropertyModel.findById(id);
     if (!property) return null;
     if (property.owner_id !== userId && role !== 'admin') {
       throw Object.assign(new Error('Not authorized to mark this property as sold'),
         { code: 'FORBIDDEN', statusCode: 403 });
     }
-    const updated = PropertyModel.markSold(id);
+    const updated = await PropertyModel.markSold(id);
     return updated ? formatProperty(updated, userId) : null;
   },
 
-  getById(id, viewerId = null) {
-    const property = PropertyModel.findById(id);
+  async getById(id, viewerId = null) {
+    const property = await PropertyModel.findById(id);
     if (!property) return null;
-    PropertyModel.incrementViews(id);
+    await PropertyModel.incrementViews(id);
     return formatProperty(property, viewerId);
   },
 
-  /**
-   * Create a property listing.  FREE — no eligibility check, no payment,
-   * no quota deduction.  Only requires auth (enforced by the route layer).
-   */
   async create(ownerId, body) {
-    // Strip any legacy payment field silently — listings are free now.
     // eslint-disable-next-line no-unused-vars
     const { paymentRef, ...propertyData } = body;
-
-    const property = PropertyModel.create({
+    const property = await PropertyModel.create({
       id: uuidv4(),
       owner_id: ownerId,
       ...propertyData,
@@ -89,18 +69,14 @@ const PropertiesService = {
     return formatProperty(property, ownerId);
   },
 
-  /**
-   * Quick Post — abbreviated create flow per CR §QuickPost.
-   * Auto-fills required fields the buyer-facing schema needs (title,
-   * description, address) from the limited inputs.
-   */
   async quickCreate(ownerId, body) {
-    const owner = UserModel.findById(ownerId);
+    const owner = await UserModel.findById(ownerId);
     const cityLabel = body.city || 'My Area';
-    const bhkLabel = body.bhk ? `${body.bhk}BHK ` : '';
-    const title = `${bhkLabel}${body.property_type[0].toUpperCase()}${body.property_type.slice(1)} in ${cityLabel}`;
+    const cap = (s) => s ? s[0].toUpperCase() + s.slice(1) : '';
+    const listingLabel = (body.listing_type || 'rent').toLowerCase() === 'sale' ? 'Sale' : 'Rent';
+    const title = `${cap(body.property_type)} For ${listingLabel} in ${cityLabel}`;
 
-    const property = PropertyModel.create({
+    const property = await PropertyModel.create({
       id: uuidv4(),
       owner_id: ownerId,
       title,
@@ -111,13 +87,16 @@ const PropertiesService = {
       price: body.price,
       price_negotiable: false,
       bedrooms: body.bhk || null,
-      bathrooms: null,
-      area_sqft: null,
-      furnishing: 'unfurnished',
+      bathrooms: body.bathrooms ?? null,
+      area_sqft: body.area_sqft ?? null,
+      furnishing: body.furnishing || 'unfurnished',
+      room_sharing: body.room_sharing ?? null,
+      video_url: body.video_url ?? null,
       address_line: body.address_line || cityLabel,
+      country: body.country || 'India',
       city: cityLabel,
       state: body.state || (owner && owner.state) || '—',
-      pincode: body.pincode || '000000',
+      pincode: body.pincode || null,
       latitude: body.latitude,
       longitude: body.longitude,
       images: body.images || [],
@@ -137,11 +116,10 @@ const PropertiesService = {
     return formatProperty(property, ownerId);
   },
 
-  /** Admin-only — toggle the verified flag. */
   async setVerified(id, adminId, verified) {
-    const property = PropertyModel.findById(id);
+    const property = await PropertyModel.findById(id);
     if (!property) return null;
-    const updated = PropertyModel.update(id, {
+    const updated = await PropertyModel.update(id, {
       verified: !!verified,
       verified_at: verified ? new Date().toISOString() : null,
       verified_by: verified ? adminId : null,
@@ -150,17 +128,17 @@ const PropertiesService = {
   },
 
   async update(id, ownerId, role, partial) {
-    const property = PropertyModel.findById(id);
+    const property = await PropertyModel.findById(id);
     if (!property) return null;
     if (property.owner_id !== ownerId && role !== 'admin') {
       throw Object.assign(new Error('Not authorized to update this property'), { code: 'FORBIDDEN', statusCode: 403 });
     }
-    const updated = PropertyModel.update(id, partial);
+    const updated = await PropertyModel.update(id, partial);
     return updated ? formatProperty(updated, ownerId) : null;
   },
 
   async remove(id, userId, role) {
-    const property = PropertyModel.findById(id);
+    const property = await PropertyModel.findById(id);
     if (!property) return false;
     if (property.owner_id !== userId && role !== 'admin') {
       throw Object.assign(new Error('Not authorized to delete this property'), { code: 'FORBIDDEN', statusCode: 403 });
@@ -168,26 +146,28 @@ const PropertiesService = {
     return PropertyModel.delete(id);
   },
 
-  getMyListings(ownerId, query) {
-    const all = PropertyModel.findByOwnerId(ownerId);
+  async getMyListings(ownerId, query) {
+    const all = await PropertyModel.findByOwnerId(ownerId);
     const filtered = query.status ? all.filter((p) => p.status === query.status) : all;
     filtered.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     const { page, limit, offset, meta } = paginate(query, filtered.length);
     return {
-      data: applyPagination(filtered, offset, limit).map((p) => formatProperty(p, ownerId)),
+      data: await Promise.all(
+        applyPagination(filtered, offset, limit).map((p) => formatProperty(p, ownerId))
+      ),
       meta,
     };
   },
 };
 
-/**
- * Shape a row for API output, masking contact fields when appropriate.
- * Never returns raw phone/email unless the caller is entitled.
- */
-function formatProperty(p, viewerId) {
-  const isOwner = viewerId && p.owner_id === viewerId;
-  const isUnlocked = viewerId ? ContactUnlockModel.hasUnlock(viewerId, p.id) : false;
-  const isWishlisted = viewerId ? !!WishlistModel.findByUserAndProperty(viewerId, p.id) : false;
+async function formatProperty(p, viewerId) {
+  const isOwner = !!(viewerId && p.owner_id === viewerId);
+  const [isUnlocked, isWishlisted] = viewerId
+    ? await Promise.all([
+        ContactUnlockModel.hasUnlock(viewerId, p.id),
+        WishlistModel.findByUserAndProperty(viewerId, p.id).then(Boolean),
+      ])
+    : [false, false];
 
   return {
     id: p.id,
@@ -207,6 +187,7 @@ function formatProperty(p, viewerId) {
     floor: p.floor,
     totalFloors: p.total_floors,
     addressLine: p.address_line,
+    country: p.country || 'India',
     city: p.city,
     state: p.state,
     pincode: p.pincode,
@@ -223,36 +204,27 @@ function formatProperty(p, viewerId) {
     verifiedAt: p.verified_at || null,
     isQuickPost: !!p.is_quick_post,
     bhk: p.bhk ?? null,
+    videoUrl: p.video_url || null,
+    roomSharing: p.room_sharing || null,
     createdAt: p.created_at,
     updatedAt: p.updated_at,
 
-    // --- Viewer-specific projections ---------------------------------------
     isOwner,
     isContactUnlocked: isOwner || isUnlocked,
     isWishlisted,
 
-    // Contact is masked unless owner/unlocked.
     contact: (isOwner || isUnlocked)
-      ? {
-          phone: p.contact_phone || null,
-          email: p.contact_email || null,
-          name: p.contact_name || null,
-        }
-      : maskContact({
-          phone: p.contact_phone,
-          email: p.contact_email,
-          name: p.contact_name,
-        }),
+      ? { phone: p.contact_phone || null, email: p.contact_email || null, name: p.contact_name || null }
+      : maskContact({ phone: p.contact_phone, email: p.contact_email, name: p.contact_name }),
   };
 }
 
-/** Partially reveal contact info so the UI can hint at a phone/email length. */
 function maskContact({ phone, email, name }) {
   const maskedPhone = phone ? phone.slice(0, 2) + '•••••' + phone.slice(-2) : null;
   let maskedEmail = null;
   if (email && email.includes('@')) {
     const [user, domain] = email.split('@');
-    maskedEmail = (user.slice(0, 1) + '•••@' + domain);
+    maskedEmail = user.slice(0, 1) + '•••@' + domain;
   }
   return { phone: maskedPhone, email: maskedEmail, name: name ? name.split(' ')[0] : null };
 }

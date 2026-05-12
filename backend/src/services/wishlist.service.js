@@ -5,18 +5,18 @@ const ContactUnlockModel = require('../models/contactUnlock.model');
 const { WISHLIST_LIMIT } = require('../config/constants');
 
 const WishlistService = {
-  list(userId) {
-    const items = WishlistModel.findByUserId(userId);
-    return items
-      .map((w) => {
-        const prop = PropertyModel.findById(w.property_id);
+  async list(userId) {
+    const items = await WishlistModel.findByUserId(userId);
+    const results = await Promise.all(
+      items.map(async (w) => {
+        const prop = await PropertyModel.findById(w.property_id);
         if (!prop) return null;
         return {
           id: w.id,
           propertyId: w.property_id,
           notes: w.notes,
           addedAt: w.added_at,
-          isContactUnlocked: ContactUnlockModel.hasUnlock(userId, w.property_id),
+          isContactUnlocked: await ContactUnlockModel.hasUnlock(userId, w.property_id),
           property: {
             id: prop.id,
             title: prop.title,
@@ -36,15 +36,16 @@ const WishlistService = {
           },
         };
       })
-      .filter(Boolean);
+    );
+    return results.filter(Boolean);
   },
 
-  add(userId, propertyId, notes = null) {
-    const property = PropertyModel.findById(propertyId);
+  async add(userId, propertyId, notes = null) {
+    const property = await PropertyModel.findById(propertyId);
     if (!property) {
       throw Object.assign(new Error('Property not found'), { code: 'NOT_FOUND', statusCode: 404 });
     }
-    const count = WishlistModel.countByUser(userId);
+    const count = await WishlistModel.countByUser(userId);
     if (count >= WISHLIST_LIMIT) {
       throw Object.assign(
         new Error(`Wishlist limit (${WISHLIST_LIMIT}) reached`),
@@ -54,12 +55,12 @@ const WishlistService = {
     return WishlistModel.add({ id: uuidv4(), user_id: userId, property_id: propertyId, notes });
   },
 
-  remove(userId, propertyId) {
+  async remove(userId, propertyId) {
     return WishlistModel.remove(userId, propertyId);
   },
 
-  isWishlisted(userId, propertyId) {
-    return !!WishlistModel.findByUserAndProperty(userId, propertyId);
+  async isWishlisted(userId, propertyId) {
+    return !!(await WishlistModel.findByUserAndProperty(userId, propertyId));
   },
 };
 

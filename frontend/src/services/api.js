@@ -13,7 +13,9 @@ api.interceptors.request.use((config) => {
   const stored = localStorage.getItem('findden_auth');
   if (stored) {
     try {
-      const { token } = JSON.parse(stored);
+      const parsed = JSON.parse(stored);
+      // Zustand persist wraps state as { state: { token, ... }, version }
+      const { token } = parsed.state ?? parsed;
       if (token) config.headers.Authorization = `Bearer ${token}`;
     } catch {
       // ignore

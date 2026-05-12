@@ -2,18 +2,18 @@ const WishlistService = require('../services/wishlist.service');
 const { success, created, error } = require('../utils/response');
 
 const WishlistController = {
-  list(req, res, next) {
+  async list(req, res, next) {
     try {
-      return success(res, WishlistService.list(req.user.id));
+      return success(res, await WishlistService.list(req.user.id));
     } catch (err) {
       return next(err);
     }
   },
 
-  add(req, res, next) {
+  async add(req, res, next) {
     try {
       const { propertyId, notes } = req.body;
-      const row = WishlistService.add(req.user.id, propertyId, notes);
+      const row = await WishlistService.add(req.user.id, propertyId, notes);
       return created(res, row);
     } catch (err) {
       if (err.code === 'NOT_FOUND') return error(res, err.message, 'NOT_FOUND', 404);
@@ -22,9 +22,9 @@ const WishlistController = {
     }
   },
 
-  remove(req, res, next) {
+  async remove(req, res, next) {
     try {
-      const deleted = WishlistService.remove(req.user.id, req.params.propertyId);
+      const deleted = await WishlistService.remove(req.user.id, req.params.propertyId);
       return success(res, { removed: deleted });
     } catch (err) {
       return next(err);

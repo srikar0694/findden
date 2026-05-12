@@ -84,14 +84,21 @@ export default function DashboardPage() {
             <KpiCard label="Total Listings" value={listings.total} icon="📋" color="green" />
           </div>
 
-          {/* Subscription status */}
+          {/* Subscription status (CR §1.2 — show amount, limit, expiry) */}
           {subscription ? (
             <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-6 text-white">
               <div className="flex justify-between items-start">
                 <div>
                   <p className="text-blue-100 text-sm font-medium">{subscription.plan} Plan</p>
-                  <p className="text-2xl font-bold mt-1">{subscription.quotaRemaining} listings left</p>
+                  <p className="text-2xl font-bold mt-1">
+                    {subscription.amount != null ? `₹${Number(subscription.amount).toLocaleString()}` : '—'}
+                    <span className="text-sm font-normal text-blue-100 ml-1">/ month</span>
+                  </p>
                   <p className="text-blue-100 text-sm mt-1">
+                    Up to <strong>{subscription.quotaTotal}</strong> unlock{subscription.quotaTotal === 1 ? '' : 's'} ·
+                    {' '}<strong>{subscription.quotaRemaining}</strong> remaining
+                  </p>
+                  <p className="text-blue-100 text-sm">
                     Expires {formatDate(subscription.expiresAt)}
                   </p>
                 </div>

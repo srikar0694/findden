@@ -1,127 +1,86 @@
 /**
- * JSON-based data store.
- * Mimics the PostgreSQL table structure exactly.
- * Each table is a JSON file under db/data/.
- * All reads are from in-memory cache; writes flush to disk.
+ * PostgreSQL connection pool.
+ *
+ * One pool per Node process. All callers should issue queries through
+ * `query()` (auto-checkout/release) or, for multi-statement work that needs
+ * a transaction, through `withTransaction()`.
+ *
+ * The PostGIS extension is required — load it via the `001_extensions.sql`
+ * migration before the app boots.
  */
 
-const fs = require('fs');
-const path = require('path');
+const { Pool } = require('pg');
+const logger = require('../utils/logger');
 
-const DATA_DIR = path.join(__dirname, '../../db/data');
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  min: parseInt(process.env.DB_POOL_MIN || '2', 10),
+  max: parseInt(process.env.DB_POOL_MAX || '20', 10),
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 5_000,
+  statement_timeout: parseInt(process.env.DB_STATEMENT_TIMEOUT_MS || '5000', 10),
+});
 
-// Ensure data directory exists
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-
-const cache = {};
+pool.on('error', (err) => {
+  // Idle clients can be terminated by the server (e.g. PG restart).
+  // Logging the error keeps the process alive — the next checkout reconnects.
+  logger.error('pg pool idle client error', { message: err.message });
+});
 
 /**
- * Load a table from disk into memory (lazy, once per process).
+ * Run a single parameterized query.
+ * @param {string} text  SQL with $1, $2 placeholders
+ * @param {any[]}  params
+ * @returns {Promise<import('pg').QueryResult>}
  */
-function load(table) {
-  if (cache[table]) return cache[table];
-  const filePath = path.join(DATA_DIR, `${table}.json`);
-  if (!fs.existsSync(filePath)) {
-    cache[table] = [];
-    return cache[table];
-  }
+async function query(text, params) {
+  const start = Date.now();
   try {
-    cache[table] = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch {
-    cache[table] = [];
+    const result = await pool.query(text, params);
+    const duration = Date.now() - start;
+    if (duration > 500) {
+      logger.warn('slow query', { duration, text: text.slice(0, 120) });
+    }
+    return result;
+  } catch (err) {
+    logger.error('query failed', { message: err.message, text: text.slice(0, 120) });
+    throw err;
   }
-  return cache[table];
 }
 
 /**
- * Flush a table back to disk after mutation.
+ * Run multiple statements inside a single transaction.
+ * The callback receives a checked-out client; commit/rollback is automatic.
+ *
+ *   await withTransaction(async (client) => {
+ *     await client.query('UPDATE ...');
+ *     await client.query('INSERT ...');
+ *   });
  */
-function flush(table) {
-  const filePath = path.join(DATA_DIR, `${table}.json`);
-  fs.writeFileSync(filePath, JSON.stringify(cache[table], null, 2), 'utf8');
+async function withTransaction(fn) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
-/**
- * Generic CRUD operations mirroring SQL patterns.
- */
-const db = {
-  /** Return all rows from a table. */
-  findAll(table) {
-    return [...load(table)];
-  },
+/** Health check used by GET /api/health. */
+async function ping() {
+  const { rows } = await pool.query('SELECT 1 AS ok');
+  return rows[0].ok === 1;
+}
 
-  /** Find rows matching a predicate. */
-  findWhere(table, predicate) {
-    return load(table).filter(predicate);
-  },
+/** Graceful shutdown — call on SIGTERM. */
+async function close() {
+  await pool.end();
+}
 
-  /** Find first row matching a predicate. */
-  findOne(table, predicate) {
-    return load(table).find(predicate) || null;
-  },
-
-  /** Find by id. */
-  findById(table, id) {
-    return load(table).find((row) => row.id === id) || null;
-  },
-
-  /** Insert a new row. Returns the inserted row. */
-  insert(table, row) {
-    load(table).push(row);
-    flush(table);
-    return row;
-  },
-
-  /** Update rows matching predicate with partial data. Returns updated rows. */
-  update(table, predicate, partial) {
-    const rows = load(table);
-    const updated = [];
-    rows.forEach((row, i) => {
-      if (predicate(row)) {
-        rows[i] = { ...row, ...partial, updated_at: new Date().toISOString() };
-        updated.push(rows[i]);
-      }
-    });
-    if (updated.length) flush(table);
-    return updated;
-  },
-
-  /** Update a single row by id. Returns the updated row or null. */
-  updateById(table, id, partial) {
-    const rows = load(table);
-    const idx = rows.findIndex((r) => r.id === id);
-    if (idx === -1) return null;
-    rows[idx] = { ...rows[idx], ...partial, updated_at: new Date().toISOString() };
-    flush(table);
-    return rows[idx];
-  },
-
-  /** Delete rows matching predicate. Returns count deleted. */
-  deleteWhere(table, predicate) {
-    const rows = load(table);
-    const before = rows.length;
-    cache[table] = rows.filter((r) => !predicate(r));
-    flush(table);
-    return before - cache[table].length;
-  },
-
-  /** Delete by id. Returns boolean. */
-  deleteById(table, id) {
-    return db.deleteWhere(table, (r) => r.id === id) > 0;
-  },
-
-  /** Count rows matching predicate. */
-  count(table, predicate) {
-    return predicate ? load(table).filter(predicate).length : load(table).length;
-  },
-
-  /** Reload a table from disk (useful in tests). */
-  reload(table) {
-    delete cache[table];
-    return load(table);
-  },
-};
-
-module.exports = db;
+module.exports = { pool, query, withTransaction, ping, close };

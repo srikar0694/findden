@@ -13,18 +13,18 @@ const SubscriptionsController = {
     }
   },
 
-  getMySubscription(req, res, next) {
+  async getMySubscription(req, res, next) {
     try {
-      const sub = SubscriptionsService.getMySubscription(req.user.id);
+      const sub = await SubscriptionsService.getMySubscription(req.user.id);
       return success(res, sub);
     } catch (err) {
       return next(err);
     }
   },
 
-  getHistory(req, res, next) {
+  async getHistory(req, res, next) {
     try {
-      const history = SubscriptionsService.getSubscriptionHistory(req.user.id);
+      const history = await SubscriptionsService.getSubscriptionHistory(req.user.id);
       return success(res, history);
     } catch (err) {
       return next(err);
@@ -43,9 +43,9 @@ const SubscriptionsController = {
     }
   },
 
-  cancel(req, res, next) {
+  async cancel(req, res, next) {
     try {
-      const sub = SubscriptionsService.cancel(req.params.id, req.user.id);
+      const sub = await SubscriptionsService.cancel(req.params.id, req.user.id);
       return success(res, sub);
     } catch (err) {
       if (err.code === 'NOT_FOUND') return notFound(res, err.message);

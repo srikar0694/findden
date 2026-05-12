@@ -1,26 +1,54 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import { propertiesService } from '../services/properties.service';
 import Spinner from '../components/shared/Spinner';
 import LocationPicker from '../components/map/LocationPicker';
 import ImageUploader from '../components/property/ImageUploader';
+import VideoUploader from '../components/property/VideoUploader';
+import PropertyPreview from '../components/property/PropertyPreview';
 import { useAuthStore } from '../store/authStore';
+import { listCountries, listStates, listCities, reconcileLocation } from '../utils/locations';
 
 const PROPERTY_TYPES = ['apartment', 'house', 'villa', 'plot', 'commercial', 'pg'];
 const LISTING_TYPES = ['sale', 'rent'];
 const FURNISHING_TYPES = ['unfurnished', 'semi', 'furnished'];
+const ROOM_SHARING_OPTIONS = ['single', 'double', 'triple', 'shared'];
+
+// CR — property-type → field requirement matrix
+const TYPES_WITH_BHK_BATH = ['apartment', 'house', 'villa']; // bedrooms/bathrooms shown
+const TYPES_WITH_AREA     = ['apartment', 'house', 'villa', 'plot', 'commercial']; // area shown
+const TYPES_WITH_FURN     = ['apartment', 'house', 'villa', 'pg']; // furnishing shown
+const TYPES_WITH_ROOM_SH  = ['pg']; // room_sharing shown (PG only)
+const TYPES_WITH_BATH     = ['apartment', 'house', 'villa', 'pg']; // PG also has bathroom
 
 const AMENITY_OPTIONS = [
   'parking', 'gym', 'pool', 'garden', 'lift', 'security',
   'power_backup', 'wifi', 'ac', 'clubhouse', 'playground',
 ];
 
+/**
+ * PostPropertyPage (CR §1.2)
+ * --------------------------
+ * - Live preview alongside the form.
+ * - description + pincode are no longer required.
+ * - Map auto-defaults to current location; "use my location" + "confirm
+ *   location" buttons removed.
+ * - country / state / city are dropdowns, defaulted from the geocode and
+ *   cascading (country ⇒ state list, state ⇒ city list).
+ * - Toast popup for success/error; success ⇒ redirect to /search.
+ */
 export default function PostPropertyPage() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
+  const [toast, setToast] = useState(null); // { type:'success'|'error', text }
+
+  const flash = (type, text, ms = 3500) => {
+    setToast({ type, text });
+    setTimeout(() => setToast(null), ms);
+  };
 
   const [form, setForm] = useState({
     title: '',
@@ -36,6 +64,7 @@ export default function PostPropertyPage() {
     floor: '',
     total_floors: '',
     address_line: '',
+    country: 'India',
     city: '',
     state: '',
     pincode: '',
@@ -44,15 +73,24 @@ export default function PostPropertyPage() {
     amenities: [],
     available_from: '',
     images: [],
+    video_url: '',
+    room_sharing: '',
     contact_name: '',
     contact_phone: '',
     contact_email: '',
   });
 
+  // CR — derived per-type field flags
+  const showBedrooms    = TYPES_WITH_BHK_BATH.includes(form.property_type);
+  const showBathrooms   = TYPES_WITH_BATH.includes(form.property_type);
+  const showArea        = TYPES_WITH_AREA.includes(form.property_type);
+  const showFurnishing  = TYPES_WITH_FURN.includes(form.property_type);
+  const showRoomSharing = TYPES_WITH_ROOM_SH.includes(form.property_type);
+
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
   const setMany = (patch) => setForm((f) => ({ ...f, ...patch }));
 
-  // Pre-populate contact details from the signed-in user (CR §1.3) — editable.
+  // Pre-populate contact details from the signed-in user — editable.
   useEffect(() => {
     if (!user) return;
     setForm((f) => ({
@@ -72,30 +110,91 @@ export default function PostPropertyPage() {
     }));
   };
 
+  // ─── Cascading dropdown options ─────────────────────────────────────────
+  const countryOptions = useMemo(() => listCountries(), []);
+  const stateOptions   = useMemo(() => listStates(form.country), [form.country]);
+  const cityOptions    = useMemo(() => listCities(form.country, form.state), [form.country, form.state]);
+
+  const handleCountryChange = (country) => {
+    // Reset state/city to keep cascade consistent.
+    setMany({ country, state: '', city: '' });
+  };
+  const handleStateChange = (state) => {
+    setMany({ state, city: '' });
+  };
+
+  // When the LocationPicker reverse-geocodes, reconcile country/state/city
+  // against our curated dataset so the dropdowns show the canonical names.
+  const handleLocationChange = (v) => {
+    const reconciled = reconcileLocation({
+      country: v.country ?? form.country,
+      state:   v.state   ?? form.state,
+      city:    v.city    ?? form.city,
+    });
+    setMany({
+      latitude:     v.latitude     ?? form.latitude,
+      longitude:    v.longitude    ?? form.longitude,
+      address_line: v.address_line ?? form.address_line,
+      pincode:      v.pincode      ?? form.pincode,
+      country: reconciled.country,
+      state:   reconciled.state,
+      city:    reconciled.city,
+    });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // CR — client-side guard for the conditional required fields + min 1 image.
+    if (!form.images || form.images.length < 1) {
+      return flash('error', 'Please upload at least one image.');
+    }
+    if (showBedrooms && !form.bedrooms) {
+      return flash('error', 'Bedrooms is required for this property type.');
+    }
+    if (showArea && !form.area_sqft) {
+      return flash('error', 'Area (sqft) is required for this property type.');
+    }
+    if (showFurnishing && !form.furnishing) {
+      return flash('error', 'Furnishing is required for this property type.');
+    }
+    if (showRoomSharing && !form.room_sharing) {
+      return flash('error', 'Room sharing is required for PG listings.');
+    }
+
     setSubmitting(true);
-    setError('');
     try {
       const payload = {
         ...form,
         price: parseFloat(form.price),
-        bedrooms: form.bedrooms ? parseInt(form.bedrooms, 10) : undefined,
-        bathrooms: form.bathrooms ? parseInt(form.bathrooms, 10) : undefined,
-        area_sqft: form.area_sqft ? parseFloat(form.area_sqft) : undefined,
+        bedrooms: showBedrooms && form.bedrooms ? parseInt(form.bedrooms, 10) : undefined,
+        bathrooms: showBathrooms && form.bathrooms ? parseInt(form.bathrooms, 10) : undefined,
+        area_sqft: showArea && form.area_sqft ? parseFloat(form.area_sqft) : undefined,
+        furnishing: showFurnishing ? form.furnishing : undefined,
+        room_sharing: showRoomSharing ? form.room_sharing : undefined,
         floor: form.floor ? parseInt(form.floor, 10) : undefined,
         total_floors: form.total_floors ? parseInt(form.total_floors, 10) : undefined,
         latitude: parseFloat(form.latitude),
         longitude: parseFloat(form.longitude),
         images: form.images.filter(Boolean),
+        video_url: form.video_url || undefined,
+        // Send empty strings as undefined so backend treats them as missing.
+        description: form.description?.trim() || undefined,
+        pincode: form.pincode?.trim() || undefined,
+        address_line: form.address_line?.trim() || undefined,
+        contact_email: form.contact_email?.trim() || undefined,
       };
       await propertiesService.create(payload);
-      navigate('/dashboard');
+      flash('success', 'Property posted successfully! Redirecting…', 1500);
+      // CR §1.2.7 — on success, take the user to the search page.
+      setTimeout(() => navigate('/search'), 1100);
     } catch (err) {
+      // CR §1.2.7 — on error, stay on the page and show a popup.
       if (err.code === 'PAYMENT_REQUIRED') {
-        setError('You need an active subscription or pay-per-listing to post. Please visit Pricing.');
+        flash('error', 'You need an active subscription to post. Redirecting to pricing…');
+        setTimeout(() => navigate('/pricing?from=post'), 1200);
       } else {
-        setError(err.message || 'Failed to post property. Please try again.');
+        flash('error', err.message || 'Failed to post property. Please try again.');
       }
     } finally {
       setSubmitting(false);
@@ -106,268 +205,345 @@ export default function PostPropertyPage() {
     latitude: form.latitude,
     longitude: form.longitude,
     address_line: form.address_line,
+    country: form.country,
     city: form.city,
     state: form.state,
     pincode: form.pincode,
   };
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-10">
+    <div className="max-w-6xl mx-auto px-4 py-10">
+      {/* Toast (success / error popup) */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ y: -16, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -16, opacity: 0 }}
+            className={`fixed top-20 right-6 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${
+              toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
+            }`}
+          >
+            {toast.text}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <h1 className="text-2xl font-bold text-gray-900 mb-2">Post Your Property</h1>
       <p className="text-gray-500 text-sm mb-8">Fill in the details to list your property on FindDen.</p>
 
-      {/* Step indicators */}
-      <div className="flex gap-2 mb-8">
-        {['Basic Info', 'Location', 'Details'].map((label, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
-              step > i + 1 ? 'bg-green-500 text-white' : step === i + 1 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'
-            }`}>
-              {step > i + 1 ? '✓' : i + 1}
-            </div>
-            <span className={`text-xs font-medium ${step === i + 1 ? 'text-blue-600' : 'text-gray-400'}`}>{label}</span>
-            {i < 2 && <div className="w-8 h-px bg-gray-300" />}
-          </div>
-        ))}
-      </div>
-
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 mb-6 text-sm text-red-700">
-          {error}
-          {error.includes('subscription') && (
-            <button onClick={() => navigate('/pricing')} className="ml-2 text-blue-600 underline">View Plans</button>
-          )}
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit}>
-        {/* Step 1: Basic Info */}
-        {step === 1 && (
-          <div className="space-y-5">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Property Type</label>
-                <select value={form.property_type} onChange={(e) => set('property_type', e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white capitalize">
-                  {PROPERTY_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Listing Type</label>
-                <select value={form.listing_type} onChange={(e) => set('listing_type', e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white capitalize">
-                  {LISTING_TYPES.map((t) => <option key={t} value={t}>For {t}</option>)}
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Title *</label>
-              <input type="text" value={form.title} onChange={(e) => set('title', e.target.value)}
-                placeholder="e.g. Spacious 2BHK Apartment in Koramangala" required minLength={5}
-                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-              <textarea value={form.description} onChange={(e) => set('description', e.target.value)}
-                placeholder="Describe the property — key features, nearby landmarks, society name…"
-                rows={4} className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Price ({form.listing_type === 'rent' ? '₹/month' : '₹ total'}) *
-                </label>
-                <input type="number" value={form.price} onChange={(e) => set('price', e.target.value)}
-                  placeholder="e.g. 28000" required min={0}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
-              <div className="flex items-end pb-1">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={form.price_negotiable} onChange={(e) => set('price_negotiable', e.target.checked)}
-                    className="w-4 h-4 text-blue-600 rounded" />
-                  <span className="text-sm text-gray-700">Price Negotiable</span>
-                </label>
-              </div>
-            </div>
-
-            {/* Contact details — pre-populated, fully editable (CR §1.3) */}
-            <div className="border border-gray-200 rounded-lg p-3 bg-gray-50/50">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-semibold text-gray-700">Contact details</h3>
-                <span className="text-xs text-gray-400">Pre-filled from your profile · editable</span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Owner Name *</label>
-                  <input type="text" value={form.contact_name} onChange={(e) => set('contact_name', e.target.value)}
-                    required
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* LEFT — form */}
+        <div className="lg:col-span-2">
+          {/* Step indicators */}
+          <div className="flex gap-2 mb-8">
+            {['Basic Info', 'Location', 'Details'].map((label, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                  step > i + 1 ? 'bg-green-500 text-white' : step === i + 1 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'
+                }`}>
+                  {step > i + 1 ? '✓' : i + 1}
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Phone *</label>
-                  <input type="tel" value={form.contact_phone} onChange={(e) => set('contact_phone', e.target.value)}
-                    required pattern="[0-9+\-\s]{7,20}"
-                    placeholder="9876543210"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
-                  <input type="email" value={form.contact_email} onChange={(e) => set('contact_email', e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
-                </div>
+                <span className={`text-xs font-medium ${step === i + 1 ? 'text-blue-600' : 'text-gray-400'}`}>{label}</span>
+                {i < 2 && <div className="w-8 h-px bg-gray-300" />}
               </div>
-            </div>
-
-            <button type="button" onClick={() => setStep(2)}
-              className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-semibold text-sm hover:bg-blue-700 transition-colors">
-              Continue →
-            </button>
+            ))}
           </div>
-        )}
 
-        {/* Step 2: Location */}
-        {step === 2 && (
-          <div className="space-y-5">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Pin your property on the map *</label>
-              <p className="text-xs text-gray-500 mb-2">
-                Allow location access to drop the pin automatically, or click on the map to place it.
-                The address fields below will be filled in for you — you can refine them if needed.
-              </p>
-              <LocationPicker
-                value={locationValue}
-                onChange={(v) => setMany({
-                  latitude:     v.latitude     ?? form.latitude,
-                  longitude:    v.longitude    ?? form.longitude,
-                  address_line: v.address_line ?? form.address_line,
-                  city:         v.city         ?? form.city,
-                  state:        v.state        ?? form.state,
-                  pincode:      v.pincode      ?? form.pincode,
-                })}
-              />
-            </div>
+          <form onSubmit={handleSubmit}>
+            {/* Step 1: Basic Info */}
+            {step === 1 && (
+              <div className="space-y-5">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Property Type *</label>
+                    <select value={form.property_type} onChange={(e) => set('property_type', e.target.value)}
+                      required
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white capitalize">
+                      {PROPERTY_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Listing Type *</label>
+                    <select value={form.listing_type} onChange={(e) => set('listing_type', e.target.value)}
+                      required
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white capitalize">
+                      {LISTING_TYPES.map((t) => <option key={t} value={t}>For {t}</option>)}
+                    </select>
+                  </div>
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Street Address *</label>
-              <input type="text" value={form.address_line} onChange={(e) => set('address_line', e.target.value)}
-                placeholder="Block, society, landmark" required
-                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">City *</label>
-                <input type="text" value={form.city} onChange={(e) => set('city', e.target.value)}
-                  placeholder="Bangalore" required
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">State *</label>
-                <input type="text" value={form.state} onChange={(e) => set('state', e.target.value)}
-                  placeholder="Karnataka" required
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Pincode *</label>
-              <input type="text" value={form.pincode} onChange={(e) => set('pincode', e.target.value)}
-                placeholder="560034" required pattern="[0-9]{5,10}"
-                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Title *</label>
+                  <input type="text" value={form.title} onChange={(e) => set('title', e.target.value)}
+                    placeholder="e.g. Spacious 2BHK Apartment in Koramangala" required minLength={5}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
 
-            <div className="flex gap-3">
-              <button type="button" onClick={() => setStep(1)}
-                className="flex-1 border border-gray-300 text-gray-700 py-2.5 rounded-lg font-semibold text-sm hover:bg-gray-50 transition-colors">
-                ← Back
-              </button>
-              <button
-                type="button"
-                onClick={() => setStep(3)}
-                disabled={!form.latitude || !form.longitude}
-                title={!form.latitude || !form.longitude ? 'Please drop a pin first' : ''}
-                className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg font-semibold text-sm hover:bg-blue-700 transition-colors disabled:opacity-60"
-              >
-                Continue →
-              </button>
-            </div>
-          </div>
-        )}
+                {/* CR §1.2.2 — description is no longer required. */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <textarea value={form.description} onChange={(e) => set('description', e.target.value)}
+                    placeholder="Describe the property — key features, nearby landmarks, society name…"
+                    rows={4} className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+                </div>
 
-        {/* Step 3: Property Details */}
-        {step === 3 && (
-          <div className="space-y-5">
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Bedrooms</label>
-                <input type="number" value={form.bedrooms} onChange={(e) => set('bedrooms', e.target.value)}
-                  placeholder="2" min={0}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Bathrooms</label>
-                <input type="number" value={form.bathrooms} onChange={(e) => set('bathrooms', e.target.value)}
-                  placeholder="2" min={0}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Area (sqft)</label>
-                <input type="number" value={form.area_sqft} onChange={(e) => set('area_sqft', e.target.value)}
-                  placeholder="1050" min={0}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
-            </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Price ({form.listing_type === 'rent' ? '₹/month' : '₹ total'}) *
+                    </label>
+                    <input type="number" value={form.price} onChange={(e) => set('price', e.target.value)}
+                      placeholder="e.g. 28000" required min={0}
+                      className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div className="flex items-end pb-1">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={form.price_negotiable} onChange={(e) => set('price_negotiable', e.target.checked)}
+                        className="w-4 h-4 text-blue-600 rounded" />
+                      <span className="text-sm text-gray-700">Price Negotiable</span>
+                    </label>
+                  </div>
+                </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Furnishing</label>
-                <select value={form.furnishing} onChange={(e) => set('furnishing', e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white capitalize">
-                  {FURNISHING_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Available From</label>
-                <input type="date" value={form.available_from} onChange={(e) => set('available_from', e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
-            </div>
+                {/* Contact details — pre-populated, fully editable */}
+                <div className="border border-gray-200 rounded-lg p-3 bg-gray-50/50">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-semibold text-gray-700">Contact details</h3>
+                    <span className="text-xs text-gray-400">Pre-filled from your profile · editable</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Owner Name *</label>
+                      <input type="text" value={form.contact_name} onChange={(e) => set('contact_name', e.target.value)}
+                        required
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Phone *</label>
+                      <input type="tel" value={form.contact_phone} onChange={(e) => set('contact_phone', e.target.value)}
+                        required pattern="[0-9+\-\s]{7,20}"
+                        placeholder="9876543210"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
+                      <input type="email" value={form.contact_email} onChange={(e) => set('contact_email', e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+                    </div>
+                  </div>
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Amenities</label>
-              <div className="flex flex-wrap gap-2">
-                {AMENITY_OPTIONS.map((a) => (
-                  <button key={a} type="button" onClick={() => toggleAmenity(a)}
-                    className={`text-xs px-3 py-1.5 rounded-full border transition-all capitalize ${
-                      form.amenities.includes(a) ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600 hover:border-blue-400'
-                    }`}>
-                    {a.replace(/_/g, ' ')}
+                <button type="button" onClick={() => setStep(2)}
+                  className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-semibold text-sm hover:bg-blue-700 transition-colors">
+                  Continue →
+                </button>
+              </div>
+            )}
+
+            {/* Step 2: Location */}
+            {step === 2 && (
+              <div className="space-y-5">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Pin your property on the map *</label>
+                  <p className="text-xs text-gray-500 mb-2">
+                    The map defaults to your current location. Click or drag the pin to refine —
+                    the address fields below auto-fill from the pin.
+                  </p>
+                  <LocationPicker value={locationValue} onChange={handleLocationChange} />
+                </div>
+
+                {/* CR §1.2.2 — try to prepopulate address from the map. */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Street Address *</label>
+                  <input type="text" value={form.address_line} onChange={(e) => set('address_line', e.target.value)}
+                    placeholder="Block, society, landmark" required
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+
+                {/* CR §1.2.4 / §1.2.5 / §1.2.6 — country / state / city dropdowns */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Country *</label>
+                    <select value={form.country} onChange={(e) => handleCountryChange(e.target.value)}
+                      required
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                      {countryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                      {form.country && !countryOptions.includes(form.country) && (
+                        <option value={form.country}>{form.country}</option>
+                      )}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">State *</label>
+                    <select value={form.state} onChange={(e) => handleStateChange(e.target.value)}
+                      required
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                      <option value="">Select state…</option>
+                      {stateOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                      {form.state && !stateOptions.includes(form.state) && (
+                        <option value={form.state}>{form.state}</option>
+                      )}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">City *</label>
+                    <select value={form.city} onChange={(e) => set('city', e.target.value)}
+                      required
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                      <option value="">Select city…</option>
+                      {cityOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                      {form.city && !cityOptions.includes(form.city) && (
+                        <option value={form.city}>{form.city}</option>
+                      )}
+                    </select>
+                  </div>
+                </div>
+
+                {/* CR §1.2.2 — pincode is no longer required. */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Pincode <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <input type="text" value={form.pincode} onChange={(e) => set('pincode', e.target.value)}
+                    placeholder="560034" pattern="[0-9]{5,10}"
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+
+                <div className="flex gap-3">
+                  <button type="button" onClick={() => setStep(1)}
+                    className="flex-1 border border-gray-300 text-gray-700 py-2.5 rounded-lg font-semibold text-sm hover:bg-gray-50 transition-colors">
+                    ← Back
                   </button>
-                ))}
+                  <button
+                    type="button"
+                    onClick={() => setStep(3)}
+                    disabled={!form.latitude || !form.longitude || !form.city || !form.state}
+                    title={!form.latitude || !form.longitude ? 'Please drop a pin first' : (!form.city || !form.state ? 'Please pick state and city' : '')}
+                    className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg font-semibold text-sm hover:bg-blue-700 transition-colors disabled:opacity-60"
+                  >
+                    Continue →
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Image upload (CR §1.2) */}
-            <ImageUploader
-              value={form.images}
-              onChange={(imgs) => set('images', imgs)}
-              max={10}
-            />
+            {/* Step 3: Property Details */}
+            {step === 3 && (
+              <div className="space-y-5">
+                {/* CR — bedrooms / bathrooms / area_sqft conditional on property_type */}
+                <div className="grid grid-cols-3 gap-3">
+                  {showBedrooms && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Bedrooms *</label>
+                      <input type="number" value={form.bedrooms} onChange={(e) => set('bedrooms', e.target.value)}
+                        placeholder="2" min={0} required
+                        className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                  )}
+                  {showBathrooms && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Bathrooms <span className="text-gray-400 font-normal">(optional)</span>
+                      </label>
+                      <input type="number" value={form.bathrooms} onChange={(e) => set('bathrooms', e.target.value)}
+                        placeholder="2" min={0}
+                        className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                  )}
+                  {showArea && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Area (sqft) *</label>
+                      <input type="number" value={form.area_sqft} onChange={(e) => set('area_sqft', e.target.value)}
+                        placeholder="1050" min={0} required
+                        className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                  )}
+                </div>
 
-            <div className="flex gap-3">
-              <button type="button" onClick={() => setStep(2)}
-                className="flex-1 border border-gray-300 text-gray-700 py-2.5 rounded-lg font-semibold text-sm hover:bg-gray-50 transition-colors">
-                ← Back
-              </button>
-              <button type="submit" disabled={submitting}
-                className="flex-1 bg-green-600 text-white py-2.5 rounded-lg font-semibold text-sm hover:bg-green-700 transition-colors disabled:opacity-60">
-                {submitting ? <Spinner size="sm" className="py-0" /> : '🚀 Post Property'}
-              </button>
-            </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {showFurnishing && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Furnishing *</label>
+                      <select value={form.furnishing} onChange={(e) => set('furnishing', e.target.value)}
+                        required
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white capitalize">
+                        {FURNISHING_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </div>
+                  )}
+                  {showRoomSharing && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Room Sharing *</label>
+                      <select value={form.room_sharing} onChange={(e) => set('room_sharing', e.target.value)}
+                        required
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white capitalize">
+                        <option value="">Select…</option>
+                        {ROOM_SHARING_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Available From <span className="text-gray-400 font-normal">(optional)</span>
+                    </label>
+                    <input type="date" value={form.available_from} onChange={(e) => set('available_from', e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Amenities <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {AMENITY_OPTIONS.map((a) => (
+                      <button key={a} type="button" onClick={() => toggleAmenity(a)}
+                        className={`text-xs px-3 py-1.5 rounded-full border transition-all capitalize ${
+                          form.amenities.includes(a) ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600 hover:border-blue-400'
+                        }`}>
+                        {a.replace(/_/g, ' ')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* CR — at least one image required (≤100 MB each) */}
+                <div>
+                  <ImageUploader value={form.images} onChange={(imgs) => set('images', imgs)} max={10} />
+                  <p className="text-[11px] text-gray-500 mt-1">At least one image is required.</p>
+                </div>
+
+                {/* CR — optional video, ≤300 MB */}
+                <VideoUploader
+                  value={form.video_url || null}
+                  onChange={(url) => set('video_url', url || '')}
+                />
+
+                <div className="flex gap-3">
+                  <button type="button" onClick={() => setStep(2)}
+                    className="flex-1 border border-gray-300 text-gray-700 py-2.5 rounded-lg font-semibold text-sm hover:bg-gray-50 transition-colors">
+                    ← Back
+                  </button>
+                  <button type="submit" disabled={submitting}
+                    className="flex-1 bg-green-600 text-white py-2.5 rounded-lg font-semibold text-sm hover:bg-green-700 transition-colors disabled:opacity-60">
+                    {submitting ? <Spinner size="sm" className="py-0" /> : '🚀 Post Property'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </form>
+        </div>
+
+        {/* RIGHT — live preview (CR §1.2.1) */}
+        <aside className="lg:col-span-1">
+          <div className="lg:sticky lg:top-20">
+            <PropertyPreview form={form} />
           </div>
-        )}
-      </form>
+        </aside>
+      </div>
     </div>
   );
 }

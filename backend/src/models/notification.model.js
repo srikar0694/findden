@@ -1,36 +1,48 @@
-/**
- * Notification Model
- * ----------------------------------------------------------------------
- * A generic log of outbound notifications (email / SMS) sent to
- * property owners on behalf of interested buyers/renters.
- *
- * type:       'request_callback' | 'send_message'
- * channels:   array combination of 'email' | 'sms'
- * status:     'queued' | 'sent' | 'failed'
- *
- * In dev we don't actually hit an SMTP/SMS gateway — the notifier
- * simply logs a fully-formed payload here. A production deployment
- * can swap the transport without changing the API surface.
- */
-
-const db = require('../config/database');
-
-const TABLE = 'notifications';
+const { query } = require('../config/database');
 
 const NotificationModel = {
-  create: (row) => db.insert(TABLE, row),
+  async create(data) {
+    const { rows } = await query(
+      `INSERT INTO notifications (id, type, owner_id, sender_id, channels, status, payload)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+       RETURNING *`,
+      [
+        data.id, data.type, data.owner_id || null, data.sender_id || null,
+        data.channels || [], data.status || 'queued',
+        JSON.stringify(data.payload || {}),
+      ]
+    );
+    return rows[0];
+  },
 
-  findById: (id) => db.findById(TABLE, id),
+  async findById(id) {
+    const { rows } = await query(`SELECT * FROM notifications WHERE id = $1`, [id]);
+    return rows[0] || null;
+  },
 
-  findByOwnerId: (ownerId) =>
-    db.findWhere(TABLE, (n) => n.owner_id === ownerId)
-      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
+  async findByOwnerId(ownerId) {
+    const { rows } = await query(
+      `SELECT * FROM notifications WHERE owner_id = $1 ORDER BY created_at DESC`,
+      [ownerId]
+    );
+    return rows;
+  },
 
-  findBySenderId: (senderId) =>
-    db.findWhere(TABLE, (n) => n.sender_id === senderId)
-      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
+  async findBySenderId(senderId) {
+    const { rows } = await query(
+      `SELECT * FROM notifications WHERE sender_id = $1 ORDER BY created_at DESC`,
+      [senderId]
+    );
+    return rows;
+  },
 
-  updateStatus: (id, status) => db.updateById(TABLE, id, { status }),
+  async updateStatus(id, status) {
+    const { rows } = await query(
+      `UPDATE notifications SET status = $2 WHERE id = $1 RETURNING *`,
+      [id, status]
+    );
+    return rows[0] || null;
+  },
 };
 
 module.exports = NotificationModel;

@@ -1,0 +1,98 @@
+erDiagram
+    USERS ||--o{ PROPERTIES       : "owns"
+    USERS ||--o{ SUBSCRIPTIONS    : "subscribes"
+    USERS ||--o{ TRANSACTIONS     : "pays"
+    PLANS ||--o{ SUBSCRIPTIONS    : "defines"
+    SUBSCRIPTIONS ||--o{ TRANSACTIONS : "billed via"
+    PROPERTIES ||--o{ TRANSACTIONS : "pay-per-listing"
+
+    USERS {
+        UUID        id PK
+        VARCHAR_100 name
+        VARCHAR_255 email UK
+        TEXT        password_hash
+        user_role   role "buyer|agent|owner|admin"
+        VARCHAR_20  phone
+        TEXT        avatar_url
+        BOOLEAN     is_verified
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    PLANS {
+        TEXT         id PK "plan-single-001 etc."
+        VARCHAR_100  name
+        VARCHAR_50   slug UK "single|cart|premium"
+        TEXT         description
+        TEXT         tagline
+        NUMERIC_10_2 price
+        CHAR_3       currency
+        INT          unlock_quota "contacts unlockable"
+        INT          duration_days "NULL for one_time"
+        VARCHAR_20   billing_cycle "one_time|monthly|yearly"
+        VARCHAR_20   tier "single|bundle|pro|enterprise"
+        JSONB        features "feature bullet list"
+        BOOLEAN      highlight "show as featured"
+        INT          display_order
+        BOOLEAN      is_active
+        TIMESTAMPTZ  created_at
+    }
+
+    SUBSCRIPTIONS {
+        UUID                id PK
+        UUID                user_id FK
+        TEXT                plan_id FK "→ plans.id (TEXT)"
+        INT                 quota_used
+        TIMESTAMPTZ         starts_at
+        TIMESTAMPTZ         expires_at "NULL = never expires (one_time)"
+        subscription_status status "active|expired|cancelled|paused"
+        TIMESTAMPTZ         created_at
+        TIMESTAMPTZ         updated_at
+    }
+
+    PROPERTIES {
+        UUID            id PK
+        UUID            owner_id FK
+        VARCHAR_255     title
+        TEXT            description
+        property_type   property_type "apartment|house|villa|plot|commercial|pg"
+        property_status status "draft|pending_payment|active|paused|sold|rented|expired"
+        VARCHAR_10      listing_type "sale|rent"
+        NUMERIC_14_2    price
+        BOOLEAN         price_negotiable
+        SMALLINT        bedrooms
+        SMALLINT        bathrooms
+        NUMERIC_10_2    area_sqft
+        VARCHAR_20      furnishing "unfurnished|semi|furnished"
+        SMALLINT        floor
+        SMALLINT        total_floors
+        TEXT            address_line
+        VARCHAR_100     city
+        VARCHAR_100     state
+        VARCHAR_10      pincode
+        GEOGRAPHY       location "Point,4326 — GiST indexed"
+        DOUBLE          latitude  "GENERATED from location"
+        DOUBLE          longitude "GENERATED from location"
+        TEXT_ARRAY      images
+        TEXT_ARRAY      amenities
+        DATE            available_from
+        INT             views_count
+        TSVECTOR        search_doc "GENERATED — title+city+address, GIN indexed"
+        TIMESTAMPTZ     created_at
+        TIMESTAMPTZ     updated_at
+    }
+
+    TRANSACTIONS {
+        UUID               id PK
+        UUID               user_id FK
+        UUID               subscription_id FK "nullable — XOR with property_id"
+        UUID               property_id FK "nullable — XOR with subscription_id"
+        NUMERIC_10_2       amount
+        CHAR_3             currency
+        transaction_status status "pending|success|failed|refunded"
+        VARCHAR_50         payment_gateway "razorpay|stripe"
+        VARCHAR_255        payment_ref "UNIQUE when not null"
+        JSONB              metadata
+        TIMESTAMPTZ        created_at
+        TIMESTAMPTZ        updated_at
+    }
