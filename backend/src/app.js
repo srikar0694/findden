@@ -26,9 +26,10 @@ app.use(
   })
 );
 
-// Body parser — generous limit so base64-encoded image uploads fit.
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// Body parser — generous limit so base64-encoded image (100 MB) and
+// video (300 MB) uploads fit (base64 inflates by ~1.37×).
+app.use(express.json({ limit: '420mb' }));
+app.use(express.urlencoded({ extended: true, limit: '420mb' }));
 
 // Static — uploaded property images
 app.use('/uploads', express.static(path.join(__dirname, '..', 'db', 'uploads')));

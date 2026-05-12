@@ -14,8 +14,12 @@ const { success, error } = require('../utils/response');
 
 const ROOT = path.join(__dirname, '..', '..', 'db', 'uploads', 'properties');
 const ALLOWED = { 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
-const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
+// CR — image size limit raised to 100 MB.
+const MAX_BYTES = 100 * 1024 * 1024;
 const MAX_FILES = 10;
+// CR — optional video, ≤300 MB.
+const ALLOWED_VIDEO = { 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm' };
+const MAX_VIDEO_BYTES = 300 * 1024 * 1024;
 
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -67,6 +71,38 @@ const UploadsController = {
       }
 
       return success(res, { urls });
+    } catch (err) {
+      return next(err);
+    }
+  },
+
+  /**
+   * POST /api/uploads/property-video
+   * Body: { video: { dataUrl: 'data:video/mp4;base64,...' } }
+   * Returns: { url: '/uploads/properties/<userId>/<uuid>.mp4' }
+   * CR — optional video upload, ≤300 MB.
+   */
+  async uploadPropertyVideo(req, res, next) {
+    try {
+      const userId = req.user.id;
+      const { video } = req.body;
+      if (!video || typeof video.dataUrl !== 'string') {
+        return error(res, 'No video provided', 'BAD_REQUEST', 400);
+      }
+      const match = video.dataUrl.match(/^data:([\w/+.-]+);base64,(.+)$/);
+      if (!match) return error(res, 'Video must be a base64 data URL', 'BAD_REQUEST', 400);
+      const mime = match[1].toLowerCase();
+      const ext = ALLOWED_VIDEO[mime];
+      if (!ext) return error(res, `Unsupported video type: ${mime}`, 'BAD_REQUEST', 400);
+      const buffer = Buffer.from(match[2], 'base64');
+      if (buffer.length > MAX_VIDEO_BYTES) {
+        return error(res, `Video exceeds ${MAX_VIDEO_BYTES / 1024 / 1024} MB`, 'BAD_REQUEST', 400);
+      }
+      const userDir = path.join(ROOT, userId);
+      ensureDir(userDir);
+      const fileName = `${uuidv4()}.${ext}`;
+      fs.writeFileSync(path.join(userDir, fileName), buffer);
+      return success(res, { url: `/uploads/properties/${userId}/${fileName}` });
     } catch (err) {
       return next(err);
     }

@@ -23,4 +23,10 @@ export const uploadsService = {
     }
     return api.post('/uploads/property-images', { images });
   },
+
+  /** Upload a single video File; returns { url }. */
+  uploadPropertyVideo: async (file) => {
+    const dataUrl = await fileToDataUrl(file);
+    return api.post('/uploads/property-video', { video: { dataUrl } });
+  },
 };

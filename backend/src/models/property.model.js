@@ -10,6 +10,8 @@ const WRITABLE = [
   'is_quick_post', 'bhk',
   'contact_name', 'contact_phone', 'contact_email',
   'possession_status', 'nearest_transit',
+  // CR — optional listing video and PG room-sharing
+  'video_url', 'room_sharing',
 ];
 
 const PropertyModel = {
@@ -152,7 +154,8 @@ const PropertyModel = {
          images, amenities, available_from, views_count,
          sold_at, verified, verified_at, verified_by,
          is_quick_post, bhk, contact_name, contact_phone, contact_email,
-         possession_status, nearest_transit
+         possession_status, nearest_transit,
+         video_url, room_sharing
        ) VALUES (
          $1,  $2,  $3,  $4,  $5,  $6,  $7,
          $8,  $9,  $10, $11, $12, $13,
@@ -160,7 +163,8 @@ const PropertyModel = {
          $23, $24, $25, $26,
          $27, $28, $29, $30,
          $31, $32, $33, $34, $35,
-         $36, $37
+         $36, $37,
+         $38, $39
        ) RETURNING *`,
       [
         data.id, data.owner_id, data.title, data.description || null,
@@ -176,6 +180,7 @@ const PropertyModel = {
         data.is_quick_post ?? false, data.bhk ?? null,
         data.contact_name ?? null, data.contact_phone ?? null, data.contact_email ?? null,
         data.possession_status || 'ready_to_move', data.nearest_transit || [],
+        data.video_url ?? null, data.room_sharing ?? null,
       ]
     );
     return rows[0];

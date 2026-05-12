@@ -101,7 +101,7 @@ export default function ImageUploader({ value = [], onChange, max = 10 }) {
               ? `Maximum ${max} images reached`
               : 'Drag images here, or click to choose'}
         </p>
-        <p className="text-xs text-gray-400 mt-1">PNG, JPG, or WebP · up to 5 MB each</p>
+        <p className="text-xs text-gray-400 mt-1">PNG, JPG, or WebP · up to 100 MB each</p>
         <input
           ref={inputRef}
           type="file"
