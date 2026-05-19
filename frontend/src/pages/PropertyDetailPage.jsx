@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { propertiesService } from '../services/properties.service';
 import { contactsService } from '../services/contacts.service';
 import { notificationsService } from '../services/notifications.service';
+import { plansService } from '../services/plans.service';
 import { formatCurrency, formatRent } from '../utils/formatCurrency';
 import { formatDate, timeAgo } from '../utils/formatDate';
 import Spinner from '../components/shared/Spinner';
@@ -28,6 +29,9 @@ export default function PropertyDetailPage() {
   const [property, setProperty] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeImg, setActiveImg] = useState(0);
+  const [starterPrice, setStarterPrice] = useState(null);
+  // CR — caller's active subscription / remaining unlocks. Drives the CTA copy.
+  const [entitlement, setEntitlement] = useState(null);
 
   // Modal state
   const [showMessageModal, setShowMessageModal] = useState(false);
@@ -48,6 +52,25 @@ export default function PropertyDetailPage() {
       .catch(() => navigate('/'))
       .finally(() => setLoading(false));
   }, [id, navigate]);
+
+  useEffect(() => {
+    plansService.getAll()
+      .then((res) => {
+        const plans = res.data ?? res;
+        const starter = plans.find((p) => p.slug === 'single');
+        if (starter) setStarterPrice(starter.price);
+      })
+      .catch(() => {});
+  }, []);
+
+  // CR — fetch the caller's unlock balance so we can swap the CTA between
+  // "Use 1 of N unlocks" (subscription quota available) and the paid prompt.
+  const refreshEntitlement = () =>
+    contactsService.getEntitlement().then((res) => setEntitlement(res.data)).catch(() => {});
+
+  useEffect(() => {
+    if (token) refreshEntitlement();
+  }, [token]);
 
   if (loading) return <div className="flex justify-center items-center h-96"><Spinner size="lg" /></div>;
   if (!property) return null;
@@ -118,11 +141,19 @@ export default function PropertyDetailPage() {
     setUnlocking(true);
     try {
       // Try to use a subscription slot first.
-      await contactsService.unlock(id);
-      flash('success', 'Contact unlocked!');
-      await refresh();
+      const res = await contactsService.unlock(id);
+      // Server returns the latest `unlocksRemaining` — bubble it into the toast
+      // so the user immediately sees the new balance.
+      const remaining = res?.data?.unlocksRemaining;
+      flash(
+        'success',
+        remaining != null
+          ? `Contact unlocked — ${remaining} unlock${remaining === 1 ? '' : 's'} left.`
+          : 'Contact unlocked!'
+      );
+      await Promise.all([refresh(), refreshEntitlement()]);
     } catch (err) {
-      // CR §1.1 — no active subscription / quota exhausted ⇒ send the user
+      // No active subscription / quota exhausted ⇒ send the user
       // straight to the pricing page rather than launching a one-off Razorpay flow.
       if (err.status === 402 || err.code === 'PAYMENT_REQUIRED' || err.code === 'QUOTA_EXCEEDED') {
         flash('error', 'You need an active plan to unlock contacts. Redirecting to pricing…');
@@ -215,6 +246,21 @@ export default function PropertyDetailPage() {
               </div>
             )}
           </div>
+
+          {/* Video */}
+          {property.videoUrl && (
+            <div>
+              <h2 className="text-lg font-semibold mb-2">Property Video</h2>
+              <div className="rounded-xl overflow-hidden bg-black aspect-video">
+                <video
+                  src={property.videoUrl}
+                  controls
+                  className="w-full h-full object-contain"
+                  preload="metadata"
+                />
+              </div>
+            </div>
+          )}
 
           {/* Title & Price */}
           <div>
@@ -349,15 +395,29 @@ export default function PropertyDetailPage() {
               <div className="text-xs text-gray-500 italic">You own this listing.</div>
             ) : (
               <>
-                {!isUnlocked && (
-                  <button
-                    onClick={handleUnlockContact}
-                    disabled={unlocking}
-                    className="w-full bg-emerald-600 text-white py-2.5 rounded-lg font-medium hover:bg-emerald-700 transition-colors mb-2 disabled:opacity-60"
-                  >
-                    {unlocking ? <Spinner size="sm" className="py-0" /> : '🔓 Unlock Contact (₹40)'}
-                  </button>
-                )}
+                {!isUnlocked && (() => {
+                  // CR — when the user has subscription quota left, unlocking is free.
+                  // Show "Use 1 of N unlocks" (no ₹) and skip the pricing prompt.
+                  const hasQuota =
+                    entitlement?.hasSubscription && (entitlement?.unlocksRemaining ?? 0) > 0;
+                  return (
+                    <button
+                      onClick={handleUnlockContact}
+                      disabled={unlocking}
+                      className={`w-full text-white py-2.5 rounded-lg font-medium transition-colors mb-2 disabled:opacity-60 ${
+                        hasQuota ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-500 hover:bg-amber-600'
+                      }`}
+                    >
+                      {unlocking ? (
+                        <Spinner size="sm" className="py-0" />
+                      ) : hasQuota ? (
+                        `🔓 Unlock Contact · ${entitlement.unlocksRemaining} unlock${entitlement.unlocksRemaining === 1 ? '' : 's'} left`
+                      ) : (
+                        `🔓 Unlock Contact${starterPrice != null ? ` (₹${starterPrice})` : ''}`
+                      )}
+                    </button>
+                  );
+                })()}
 
                 <button
                   onClick={handleRequestCallback}

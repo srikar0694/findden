@@ -72,6 +72,37 @@ export async function openRazorpayCheckout(order, user = {}) {
         email: user.email || '',
         contact: user.phone || '',
       },
+      // Surface every payment method Razorpay has enabled for the account,
+      // with UPI shown first since most users pay via UPI in India.
+      method: {
+        upi:        true,
+        card:       true,
+        netbanking: true,
+        wallet:     true,
+        emi:        true,
+        paylater:   true,
+      },
+      config: {
+        display: {
+          blocks: {
+            upi_block: {
+              name: 'Pay using UPI',
+              instruments: [{ method: 'upi' }],
+            },
+            other_block: {
+              name: 'Other payment methods',
+              instruments: [
+                { method: 'card' },
+                { method: 'netbanking' },
+                { method: 'wallet' },
+                { method: 'emi' },
+              ],
+            },
+          },
+          sequence: ['block.upi_block', 'block.other_block'],
+          preferences: { show_default_blocks: false },
+        },
+      },
       theme: { color: '#2563eb' },
       handler: (response) => resolve(response),
       modal: {

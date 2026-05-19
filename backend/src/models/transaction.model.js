@@ -1,6 +1,9 @@
 /**
  * Transaction model — Postgres backed.
- * Polymorphic: each row carries either subscription_id or property_id (XOR).
+ * The XOR (subscription_id ⊕ property_id) constraint was dropped in
+ * migration 012 because the subscription-first checkout flow inserts the
+ * pending row before the subscription is created; subscription_id is
+ * backfilled at verify.
  */
 
 const db = require('../config/database');
@@ -61,7 +64,7 @@ const TransactionModel = {
   },
 
   async update(id, partial) {
-    const allowed = ['status', 'payment_ref', 'payment_gateway', 'metadata'];
+    const allowed = ['status', 'payment_ref', 'payment_gateway', 'metadata', 'subscription_id', 'property_id'];
     const sets = [];
     const params = [id];
     for (const key of allowed) {

@@ -31,9 +31,9 @@ const SubscriptionModel = {
 
   /**
    * Most recent active subscription that still has credits available.
-   * One_time plans (expires_at IS NULL) qualify as long as quota remains.
-   * NULLS LAST so timed plans rank ahead of perpetual one_time credits
-   * when both exist (timed expires first, use it first).
+   * Kept for callers that still need a single "primary" subscription
+   * (e.g. dashboard headline plan name). New aggregation logic should
+   * prefer `findAllActiveByUserId`.
    */
   async findActiveByUserId(userId) {
     const { rows } = await db.query(
@@ -46,6 +46,24 @@ const SubscriptionModel = {
       [userId]
     );
     return rows[0] || null;
+  },
+
+  /**
+   * Every active, non-expired subscription for a user. Used to aggregate
+   * the stacked unlock balance — buying a second plan adds to the total.
+   * Ordered earliest-expiry first so callers can deduct quota from the
+   * subscription that's closest to lapsing.
+   */
+  async findAllActiveByUserId(userId) {
+    const { rows } = await db.query(
+      `SELECT * FROM subscriptions
+       WHERE user_id = $1
+         AND status = 'active'
+         AND (expires_at IS NULL OR expires_at > NOW())
+       ORDER BY expires_at NULLS LAST, created_at ASC`,
+      [userId]
+    );
+    return rows;
   },
 
   async create({ id, user_id, plan_id, starts_at, expires_at }) {

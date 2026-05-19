@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { plansService } from '../services/plans.service';
-import { dashboardService } from '../services/dashboard.service';
+import { contactsService } from '../services/contacts.service';
 import { runCheckout } from '../services/razorpay';
 import { useAuthStore } from '../store/authStore';
 import Spinner from '../components/shared/Spinner';
@@ -25,7 +25,8 @@ export default function PricingPage() {
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState(null);   // planSlug currently checking out
-  const [currentSub, setCurrentSub] = useState(null);
+  // CR — full aggregated entitlement (every active sub + total balance)
+  const [entitlement, setEntitlement] = useState(null);
   const [toast, setToast] = useState(null);     // { type, text }
   const { token, user } = useAuthStore();
   const navigate = useNavigate();
@@ -36,6 +37,9 @@ export default function PricingPage() {
     setTimeout(() => setToast(null), ms);
   };
 
+  const refreshEntitlement = () =>
+    contactsService.getEntitlement().then((res) => setEntitlement(res.data)).catch(() => {});
+
   useEffect(() => {
     plansService.getAll()
       .then((res) => {
@@ -44,9 +48,7 @@ export default function PricingPage() {
         setLoading(false);
       })
       .catch(() => { setPlans([]); setLoading(false); });
-    if (token) {
-      dashboardService.getSubscription().then((res) => setCurrentSub(res.data)).catch(() => {});
-    }
+    if (token) refreshEntitlement();
   }, [token]);
 
   // If we landed here from the property page (e.g. ?from=unlock), surface a banner.
@@ -69,7 +71,9 @@ export default function PricingPage() {
     try {
       const result = await runCheckout({ planSlug: plan.slug, user });
       flash('success', `Payment successful — ${plan.name} is now active.`);
-      // Razorpay popup may take a beat — let the user see the success toast.
+      // Refresh the active-plan banner so the user can see their new balance
+      // stacked on top of any existing plans before we navigate away.
+      await refreshEntitlement();
       setTimeout(() => navigate('/dashboard'), 800);
       return result;
     } catch (err) {
@@ -119,23 +123,48 @@ export default function PricingPage() {
         )}
       </SlideUp>
 
-      {/* Current subscription banner */}
-      {currentSub && currentSub.hasSubscription && (
-        <FadeIn className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-2xl p-5 mb-8 flex items-center justify-between">
-          <div>
-            <p className="text-blue-100 text-xs font-medium uppercase tracking-wide">Current plan</p>
-            <p className="text-lg font-semibold">{currentSub.plan?.name || 'Active'}</p>
-            <p className="text-blue-100 text-xs">
-              {currentSub.unlocksRemaining ?? '—'} of {currentSub.unlocksTotal ?? '—'} unlocks left
-              {currentSub.expiresAt && ` · expires ${new Date(currentSub.expiresAt).toLocaleDateString()}`}
-            </p>
+      {/* CR — Active entitlement banner. Stacks every plan the user holds and
+          shows the aggregated remaining unlocks. Helps them decide whether
+          they actually need to buy more. */}
+      {entitlement && entitlement.hasSubscription && (
+        <FadeIn className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-2xl p-5 mb-8">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <p className="text-blue-100 text-xs font-medium uppercase tracking-wide">Your active plan(s)</p>
+              <p className="text-2xl font-bold mt-1">
+                {entitlement.unlocksRemaining}
+                <span className="text-sm font-normal text-blue-100"> / {entitlement.unlocksTotal} unlocks left</span>
+              </p>
+              <p className="text-blue-100 text-xs mt-1">
+                {entitlement.unlocksUsed} used so far · stacked from{' '}
+                {(entitlement.subscriptions || []).length} active subscription
+                {(entitlement.subscriptions || []).length === 1 ? '' : 's'}
+              </p>
+            </div>
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="bg-white/20 hover:bg-white/30 text-sm font-medium px-4 py-2 rounded-lg shrink-0"
+            >
+              View dashboard →
+            </button>
           </div>
-          <button
-            onClick={() => navigate('/dashboard')}
-            className="bg-white/20 hover:bg-white/30 text-sm font-medium px-4 py-2 rounded-lg"
-          >
-            View dashboard →
-          </button>
+
+          {/* Per-plan breakdown */}
+          {(entitlement.subscriptions || []).length > 0 && (
+            <ul className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {entitlement.subscriptions.map((s) => (
+                <li key={s.subscription.id} className="bg-white/10 rounded-lg px-3 py-2 text-sm flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold">{s.plan?.name || 'Plan'}</p>
+                    <p className="text-blue-100 text-[11px]">
+                      {s.unlocksRemaining}/{s.unlocksTotal} left
+                      {s.expiresAt && ` · expires ${new Date(s.expiresAt).toLocaleDateString()}`}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </FadeIn>
       )}
 
