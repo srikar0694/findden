@@ -20,18 +20,28 @@ const env = require('../config/env');
 const logger = require('../utils/logger');
 
 let razorpayClient = null;
-try {
-  // eslint-disable-next-line global-require, import/no-unresolved
-  const Razorpay = require('razorpay');
-  if (env.razorpay.keyId && env.razorpay.keySecret) {
+// Treat the default placeholders shipped in env.js as "no real keys".
+const PLACEHOLDER_KEYS = new Set(['rzp_test_demo', 'demo_secret', '']);
+const hasRealKeys =
+  env.razorpay.keyId &&
+  env.razorpay.keySecret &&
+  !PLACEHOLDER_KEYS.has(env.razorpay.keyId) &&
+  !PLACEHOLDER_KEYS.has(env.razorpay.keySecret);
+
+if (hasRealKeys) {
+  try {
+    // eslint-disable-next-line global-require, import/no-unresolved
+    const Razorpay = require('razorpay');
     razorpayClient = new Razorpay({
       key_id: env.razorpay.keyId,
       key_secret: env.razorpay.keySecret,
     });
-    logger.info('[Razorpay] SDK loaded — live gateway enabled');
+    logger.info(`[Razorpay] SDK loaded — live gateway enabled (key=${env.razorpay.keyId})`);
+  } catch (e) {
+    logger.warn(`[Razorpay] real keys set but SDK not installed — run \`npm install razorpay\`. Falling back to sandbox. (${e.message})`);
   }
-} catch (e) {
-  logger.info('[Razorpay] SDK unavailable — using sandbox order generator');
+} else {
+  logger.info('[Razorpay] no live keys configured — using sandbox order generator');
 }
 
 const RazorpayGateway = {

@@ -80,7 +80,18 @@ export default function DashboardPage() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <KpiCard label="Active Listings" value={listings.active} icon="🏠" color="blue" />
             <KpiCard label="Total Views" value={totalViews?.toLocaleString()} icon="👁" color="purple" />
-            <KpiCard label="Quota Used" value={subscription ? `${subscription.quotaUsed}/${subscription.quotaTotal}` : '—'} icon="📊" color="amber" />
+            {/* CR — show the user their unlock balance front-and-center */}
+            <KpiCard
+              label={subscription ? 'Unlocks Left' : 'Unlocks'}
+              value={
+                subscription
+                  ? `${subscription.quotaRemaining}/${subscription.quotaTotal}`
+                  : '—'
+              }
+              sublabel={subscription ? `${subscription.quotaUsed} used this month` : 'No active plan'}
+              icon="🔓"
+              color="amber"
+            />
             <KpiCard label="Total Listings" value={listings.total} icon="📋" color="green" />
           </div>
 
@@ -210,7 +221,7 @@ export default function DashboardPage() {
   );
 }
 
-function KpiCard({ label, value, icon, color }) {
+function KpiCard({ label, value, icon, color, sublabel }) {
   const colors = {
     blue: 'bg-blue-50 text-blue-600',
     purple: 'bg-purple-50 text-purple-600',
@@ -222,6 +233,7 @@ function KpiCard({ label, value, icon, color }) {
       <div className={`inline-flex text-xl p-2 rounded-lg mb-2 ${colors[color]}`}>{icon}</div>
       <p className="text-2xl font-bold text-gray-900">{value}</p>
       <p className="text-xs text-gray-500 mt-0.5">{label}</p>
+      {sublabel && <p className="text-[10px] text-gray-400 mt-0.5">{sublabel}</p>}
     </div>
   );
 }

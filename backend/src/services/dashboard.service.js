@@ -61,17 +61,28 @@ const DashboardService = {
       messageQuota,
       subscription: subscription && subscription.hasSubscription
         ? {
+            // Headline plan = the earliest-expiring sub with quota left.
             plan: subscription.plan ? subscription.plan.name : 'Unknown',
             planId: subscription.plan ? subscription.plan.id : null,
             planSlug: subscription.plan ? subscription.plan.slug : null,
-            // CR §1.2 — surface the plan amount + currency in the dashboard.
             amount: subscription.plan ? Number(subscription.plan.price) : null,
             currency: subscription.plan ? subscription.plan.currency : 'INR',
+            // CR — aggregated across every active subscription so stacking works.
             quotaUsed: subscription.unlocksUsed,
             quotaTotal: subscription.unlocksTotal,
             quotaRemaining: subscription.unlocksRemaining,
             expiresAt: subscription.expiresAt,
             status: subscription.subscription?.status,
+            // Per-plan breakdown so the UI can show "Starter + Cart" etc.
+            activePlans: (subscription.subscriptions || []).map((s) => ({
+              subscriptionId: s.subscription.id,
+              planName: s.plan?.name || 'Plan',
+              planSlug: s.plan?.slug || null,
+              quotaTotal: s.unlocksTotal,
+              quotaUsed: s.unlocksUsed,
+              quotaRemaining: s.unlocksRemaining,
+              expiresAt: s.expiresAt,
+            })),
           }
         : null,
       listings: listingBreakdown,

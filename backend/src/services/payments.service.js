@@ -24,14 +24,13 @@ const PaymentsService = {
     const { planId, planSlug, propertyIds = [] } = body;
     const plan = await this.resolvePlan({ planId, planSlug });
 
-    if (plan.slug === 'single' && propertyIds.length > 1) {
-      throw Object.assign(new Error('Single tier accepts at most one property'), {
-        code: 'VALIDATION_ERROR', statusCode: 422,
-      });
-    }
-    if (plan.slug === 'cart' && propertyIds.length > plan.unlock_quota) {
+    // CR — payment is for the SUBSCRIPTION. `propertyIds` is optional and
+    // only used as a UX shortcut to auto-grant unlocks at verify time
+    // (e.g. the wishlist "pay & unlock these N" flow). Users can subscribe
+    // first and unlock properties later via /api/contacts/unlock/:id.
+    if (plan.unlock_quota && propertyIds.length > plan.unlock_quota) {
       throw Object.assign(
-        new Error(`Cart capacity is ${plan.unlock_quota} properties`),
+        new Error(`Plan capacity is ${plan.unlock_quota} property unlock(s)`),
         { code: 'VALIDATION_ERROR', statusCode: 422 }
       );
     }
@@ -47,7 +46,9 @@ const PaymentsService = {
       id: uuidv4(),
       user_id: userId,
       subscription_id: null,
-      property_id: propertyIds[0] || null,
+      // CR — transactions stay decoupled from properties; the subscription is
+      // the entitlement and any unlocks reference it via contact_unlocks.
+      property_id: null,
       amount: plan.price,
       currency: plan.currency || PRICING.currency,
       type: plan.billing_cycle === 'one_time' ? 'one_time' : 'subscription',
@@ -109,49 +110,38 @@ const PaymentsService = {
       ? propertyIdsOverride
       : (pending.metadata?.propertyIds || []);
 
-    let subscription = null;
-    const grantedUnlocks = [];
+    // CR — every plan creates its own subscription row. Buying additional
+    // plans STACKS the balance — prior active subscriptions are left alone
+    // and their remaining quota continues to count. See
+    // `PricingService.getEntitlement` for the aggregation logic.
+    const days = plan.duration_days || 30;
+    const subscription = await SubscriptionModel.create({
+      id: uuidv4(),
+      user_id: userId,
+      plan_id: plan.id,
+      starts_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString(),
+    });
 
-    if (plan.billing_cycle === 'monthly') {
-      const days = plan.duration_days || 30;
-      subscription = await SubscriptionModel.create({
+    const grantedUnlocks = [];
+    for (const pid of propertyIds.slice(0, plan.unlock_quota || 0)) {
+      const unlock = await ContactUnlockModel.grant({
         id: uuidv4(),
         user_id: userId,
-        plan_id: plan.id,
-        starts_at: new Date().toISOString(),
-        expires_at: new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString(),
+        property_id: pid,
+        source: plan.slug,
+        subscription_id: subscription.id,
+        transaction_id: pending.id,
       });
-
-      for (const pid of propertyIds.slice(0, plan.unlock_quota)) {
-        const unlock = await ContactUnlockModel.grant({
-          id: uuidv4(),
-          user_id: userId,
-          property_id: pid,
-          source: plan.slug,
-          subscription_id: subscription.id,
-          transaction_id: pending.id,
-        });
-        await SubscriptionModel.deductQuota(subscription.id);
-        grantedUnlocks.push(unlock);
-      }
-    } else {
-      const pid = propertyIds[0];
-      if (pid) {
-        const unlock = await ContactUnlockModel.grant({
-          id: uuidv4(),
-          user_id: userId,
-          property_id: pid,
-          source: 'single',
-          subscription_id: null,
-          transaction_id: pending.id,
-        });
-        grantedUnlocks.push(unlock);
-      }
+      await SubscriptionModel.deductQuota(subscription.id);
+      grantedUnlocks.push(unlock);
     }
 
+    // Backfill subscription_id so the ledger row links to the entitlement it paid for.
     const updated = await TransactionModel.update(pending.id, {
       status: 'success',
       payment_ref: paymentId,
+      subscription_id: subscription.id,
     });
 
     return {
