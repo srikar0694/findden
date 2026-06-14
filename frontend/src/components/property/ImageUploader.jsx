@@ -4,6 +4,9 @@ import { uploadsService } from '../../services/uploads.service';
 const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001/api')
   .replace(/\/api\/?$/, '');
 
+const MAX_IMAGE_MB = 25;
+const MAX_IMAGE_BYTES = MAX_IMAGE_MB * 1024 * 1024;
+
 /**
  * Resolve any stored image reference to a displayable URL.
  *
@@ -52,6 +55,16 @@ export default function ImageUploader({ value = [], onChange, max = 10 }) {
       setError('Please choose PNG, JPG, or WebP images.');
       return;
     }
+
+    // Client-side size check — immediate feedback before any network call.
+    const oversized = accepted.filter((f) => f.size > MAX_IMAGE_BYTES);
+    if (oversized.length > 0) {
+      setError(
+        `${oversized.map((f) => f.name).join(', ')} exceed${oversized.length === 1 ? 's' : ''} the ${MAX_IMAGE_MB} MB limit.`
+      );
+      return;
+    }
+
     if (accepted.length > remaining) {
       setError(
         `You can add ${remaining} more image${remaining === 1 ? '' : 's'} (max ${max}).`
@@ -140,7 +153,7 @@ export default function ImageUploader({ value = [], onChange, max = 10 }) {
             : 'Drag images here, or click to choose'}
         </p>
         <p className="text-xs text-gray-400 mt-1">
-          PNG, JPG, or WebP · up to 100 MB each
+          PNG, JPG, or WebP · up to {MAX_IMAGE_MB} MB each
         </p>
         <input
           ref={inputRef}

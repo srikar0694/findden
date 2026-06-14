@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useUploadCleanup } from '../hooks/useUploadCleanup';
 import { motion, AnimatePresence } from 'framer-motion';
 import { propertiesService } from '../services/properties.service';
 import Spinner from '../components/shared/Spinner';
@@ -79,6 +80,9 @@ export default function PostPropertyPage() {
     contact_phone: '',
     contact_email: '',
   });
+
+  // Must come after `form` is declared — reads form.images and form.video_url.
+  const { markSubmitted } = useUploadCleanup(form.images, form.video_url);
 
   // CR — derived per-type field flags
   const showBedrooms    = TYPES_WITH_BHK_BATH.includes(form.property_type);
@@ -185,6 +189,7 @@ export default function PostPropertyPage() {
         contact_email: form.contact_email?.trim() || undefined,
       };
       await propertiesService.create(payload);
+      markSubmitted(); // prevent R2 cleanup on unmount — files now belong to the listing
       flash('success', 'Property posted successfully! Redirecting…', 1500);
       // CR §1.2.7 — on success, take the user to the search page.
       setTimeout(() => navigate('/search'), 1100);

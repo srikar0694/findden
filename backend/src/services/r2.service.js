@@ -55,8 +55,8 @@ const R2Service = {
   },
 
   /**
-   * Delete an object from R2.
-   * @param {string} key - object key
+   * Delete a single object from R2.
+   * @param {string} key - object key, e.g. "properties/<userId>/<uuid>.jpg"
    */
   async deleteObject(key) {
     await client.send(
@@ -65,6 +65,30 @@ const R2Service = {
         Key: key,
       })
     );
+  },
+
+  /**
+   * Extract the R2 object key from a public URL.
+   * e.g. "https://pub-xxx.r2.dev/properties/user/file.jpg" → "properties/user/file.jpg"
+   * Returns null if the URL doesn't belong to this bucket.
+   */
+  keyFromUrl(url) {
+    if (!url || typeof url !== 'string') return null;
+    const prefix = `${r2.publicUrl}/`;
+    if (url.startsWith(prefix)) return url.slice(prefix.length);
+    // Fallback: extract path segment starting with "properties/"
+    const match = url.match(/\/(properties\/.+)$/);
+    return match ? match[1] : null;
+  },
+
+  /**
+   * Delete multiple objects by their public URLs.
+   * Silently skips URLs that can't be resolved to an R2 key.
+   * @param {string[]} urls
+   */
+  async deleteByUrls(urls) {
+    const keys = urls.map((u) => this.keyFromUrl(u)).filter(Boolean);
+    await Promise.allSettled(keys.map((k) => this.deleteObject(k)));
   },
 };
 
