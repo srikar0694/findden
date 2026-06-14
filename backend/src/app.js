@@ -31,7 +31,9 @@ app.use(
 app.use(express.json({ limit: '420mb' }));
 app.use(express.urlencoded({ extended: true, limit: '420mb' }));
 
-// Static — uploaded property images
+// Static fallback — serves images that were uploaded before R2 migration.
+// New uploads go to Cloudflare R2 and return full https:// URLs;
+// this route keeps old /uploads/... paths working so existing data isn't broken.
 app.use('/uploads', express.static(path.join(__dirname, '..', 'db', 'uploads')));
 
 // HTTP logging

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useUploadCleanup } from '../hooks/useUploadCleanup';
 import { motion, AnimatePresence } from 'framer-motion';
 import { propertiesService } from '../services/properties.service';
 import { useAuthStore } from '../store/authStore';
@@ -64,6 +65,9 @@ export default function QuickPostPage() {
     images: [],
     video_url: '',
   });
+
+  // Must come after `form` is declared — reads form.images and form.video_url.
+  const { markSubmitted } = useUploadCleanup(form.images, form.video_url);
 
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
   const setMany = (patch) => setForm((f) => ({ ...f, ...patch }));
@@ -150,6 +154,7 @@ export default function QuickPostPage() {
         video_url: form.video_url || undefined,
       };
       await propertiesService.quickCreate(payload);
+      markSubmitted(); // prevent R2 cleanup on unmount — files now belong to the listing
       flash('success', 'Quick post created — redirecting to search…', 1500);
       setTimeout(() => navigate('/search?quick=1'), 1100);
     } catch (err) {

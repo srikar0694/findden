@@ -1,6 +1,6 @@
 require('dotenv').config();
 
-const required = ['JWT_SECRET'];
+const required = ['JWT_SECRET', 'CLOUDFLARE_R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET_NAME', 'R2_PUBLIC_URL'];
 const missing = required.filter((key) => !process.env[key]);
 if (missing.length) {
   throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
@@ -31,5 +31,12 @@ module.exports = {
   razorpay: {
     keyId: process.env.RAZORPAY_KEY_ID || 'rzp_test_demo',
     keySecret: process.env.RAZORPAY_KEY_SECRET || 'demo_secret',
+  },
+  r2: {
+    accountId: process.env.CLOUDFLARE_R2_ACCOUNT_ID || '',
+    accessKeyId: process.env.R2_ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
+    bucketName: process.env.R2_BUCKET_NAME || '',
+    publicUrl: (process.env.R2_PUBLIC_URL || '').replace(/\/$/, ''),
   },
 };
